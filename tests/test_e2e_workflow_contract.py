@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 WORKFLOW = (Path(__file__).parents[1] / ".github" / "workflows" / "e2e-harness.yml").read_text(encoding="utf-8")
@@ -43,3 +46,44 @@ def test_e2e_scan_keeps_raw_scanner_output_out_of_artifacts() -> None:
 def test_e2e_diagnostics_upload_only_runs_for_failed_validation_or_scan() -> None:
     assert "steps.evidence_scan.outcome != 'success'" in WORKFLOW
     assert "steps.acceptance_scenarios.outcome != 'success'" in WORKFLOW
+
+
+@pytest.mark.parametrize(
+    ("proxy_settings", "expected"),
+    [
+        ({}, ""),
+        ({"HTTPS_PROXY": "http://runner.invalid:7890"}, "http://runner.invalid:7890"),
+        ({"HTTP_PROXY": "http://runner.invalid:7890"}, "http://runner.invalid:7890"),
+        ({"https_proxy": "http://runner.invalid:7890"}, "http://runner.invalid:7890"),
+        ({"http_proxy": "http://runner.invalid:7890"}, "http://runner.invalid:7890"),
+        (
+            {
+                "POWERCONTEXT_E2E_AGENT_PROXY_URL": "http://user:secret@task-proxy.invalid:3128",
+                "HTTPS_PROXY": "http://runner.invalid:7890",
+            },
+            "http://user:secret@task-proxy.invalid:3128",
+        ),
+    ],
+)
+def test_acceptance_passes_the_outbound_proxy_to_the_harness_without_printing_it(
+    tmp_path: Path, proxy_settings: dict[str, str], expected: str
+) -> None:
+    steps = yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]["steps"]
+    command = next(step["run"] for step in steps if step.get("id") == "acceptance_scenarios")
+    make = tmp_path / "make"
+    make.write_text(
+        '#!/bin/sh\nset -eu\n[ "$*" = harness-compose-acceptance ]\n'
+        'printf %s "$POWERCONTEXT_E2E_AGENT_PROXY_URL" > "$PROXY_RESULT"\n',
+        encoding="utf-8",
+    )
+    make.chmod(0o755)
+    result_path = tmp_path / "proxy.txt"
+    env = {key: value for key, value in os.environ.items() if "proxy" not in key.lower()}
+    env.update(proxy_settings)
+    env.update(PATH=f"{tmp_path}:{os.environ['PATH']}", PROXY_RESULT=str(result_path))
+
+    result = subprocess.run(["/bin/bash", "-e", "-c", command], env=env, capture_output=True, text=True, check=True)
+
+    assert result_path.read_text(encoding="utf-8") == expected
+    assert not result.stdout
+    assert not result.stderr
