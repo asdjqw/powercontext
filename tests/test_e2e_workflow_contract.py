@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -68,6 +69,9 @@ def test_e2e_diagnostics_upload_only_runs_for_failed_validation_or_scan() -> Non
 def test_acceptance_passes_the_outbound_proxy_to_the_harness_without_printing_it(
     tmp_path: Path, proxy_settings: dict[str, str], expected: str
 ) -> None:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute the acceptance workflow step")
     steps = yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]["steps"]
     command = next(step["run"] for step in steps if step.get("id") == "acceptance_scenarios")
     make = tmp_path / "make"
@@ -80,9 +84,13 @@ def test_acceptance_passes_the_outbound_proxy_to_the_harness_without_printing_it
     result_path = tmp_path / "proxy.txt"
     env = {key: value for key, value in os.environ.items() if "proxy" not in key.lower()}
     env.update(proxy_settings)
-    env.update(PATH=f"{tmp_path}:{os.environ['PATH']}", PROXY_RESULT=str(result_path))
+    env["PROXY_RESULT"] = result_path.name
+    # Bash resolves its working directory and PATH syntax on both POSIX and Git Bash.
+    command = 'export PATH="$PWD:$PATH"\n' + command
 
-    result = subprocess.run(["/bin/bash", "-e", "-c", command], env=env, capture_output=True, text=True, check=True)
+    result = subprocess.run(
+        [bash, "-e", "-c", command], cwd=tmp_path, env=env, capture_output=True, text=True, check=True
+    )
 
     assert result_path.read_text(encoding="utf-8") == expected
     assert not result.stdout
