@@ -617,24 +617,11 @@ class OceanBaseMemoryHybridIndex(CompositeMemoryIndex):
             statement = self._tagged_hybrid_sql
             parameters.update(memory_tag_parameters(request.tag_filter))
         rows = (await connection.execute(statement, parameters)).mappings().all()
-        fts_rows = sorted(
-            (row for row in rows if row["channel"] == "fts"),
-            key=lambda row: (
-                -float(row["score"]),
-                str(row["memory_artifact_id"]),
-                str(row["entry_id"]),
-                str(row["entry_version_id"]),
-            ),
-        )
-        vector_rows = sorted(
-            (row for row in rows if row["channel"] == "vector"),
-            key=lambda row: (
-                float(row["distance"]),
-                str(row["memory_artifact_id"]),
-                str(row["entry_id"]),
-                str(row["entry_version_id"]),
-            ),
-        )
+        # Each UNION ALL branch keeps its own ORDER BY/LIMIT, so per-channel row
+        # order is the order that branch produced; re-sorting in Python would
+        # change tie order relative to the independent candidate queries.
+        fts_rows = [row for row in rows if row["channel"] == "fts"]
+        vector_rows = [row for row in rows if row["channel"] == "vector"]
         return MemorySearchChannels(
             fts=memory_channel_hits(fts_rows, request.memories),
             vector=memory_channel_hits(vector_rows, request.memories),
