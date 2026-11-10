@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -234,7 +235,7 @@ async def search_pdf_pages(
     """Search the scoped Memory for distinct physical evidence pages."""
 
     from powercontext.builtin.artifacts.memory.models import MemoryCitation
-    from powercontext.builtin.runtime.models import SearchMemoryRequest
+    from powercontext.builtin.runtime.models import GetMemoryEntryRequest, SearchMemoryRequest
 
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("limit must be a positive integer")  # noqa: TRY003
@@ -242,6 +243,7 @@ async def search_pdf_pages(
         raise ValueError("question must be non-empty")  # noqa: TRY003
 
     keywords = _question_keywords(question)
+    terms = keywords or tuple(re.findall(r"[a-z0-9]{2,}", question.lower()))
     queries: list[str] = [question.strip()]
     if keywords:
         queries.extend(keyword for keyword in keywords[:6])
@@ -250,48 +252,71 @@ async def search_pdf_pages(
 
     citations: dict[tuple[str, str, str], "MemoryCitation"] = {}
     first_seen: dict[tuple[str, str, str], int] = {}
+    fts_rank: dict[tuple[str, str, str], int] = {}
     fetch_limit = max(limit * 4, 20)
     for query in queries:
         try:
             page = await memory.search(SearchMemoryRequest(query=query, mode="fts", limit=fetch_limit))
         except Exception:  # noqa: BLE001 - one weak sub-query must not abort evidence retrieval
             continue
-        for hit in page.hits:
+        for rank, hit in enumerate(page.hits):
             key = (hit.entry_id, hit.entry_version_id, hit.memory_ref.artifact_id)
-            if key in citations:
-                continue
-            first_seen[key] = len(first_seen)
-            citations[key] = MemoryCitation(
-                memory_ref=hit.memory_ref,
-                entry_id=hit.entry_id,
-                entry_version_id=hit.entry_version_id,
-            )
+            if key not in citations:
+                first_seen[key] = len(first_seen)
+                citations[key] = MemoryCitation(
+                    memory_ref=hit.memory_ref,
+                    entry_id=hit.entry_id,
+                    entry_version_id=hit.entry_version_id,
+                )
+            fts_rank[key] = min(fts_rank.get(key, rank), rank)
 
-    # Rank the bounded candidate pool by how much of the question each page actually contains,
-    # so pages that merely matched a single common term do not crowd out stronger evidence.
-    from powercontext.builtin.runtime.models import GetMemoryEntryRequest
+    # The whole page set is small enough to score locally: reading every active page removes
+    # dependence on one query's postings, so evidence pages that share few literal tokens with
+    # the question still reach the reranker and can enter the top pages.
+    scores: dict[tuple[str, str, str], float] = {}
+    try:
+        page_entries = await memory.list()
+        for record in page_entries.entries:
+            citation = record.citation
+            key = (citation.entry_id, citation.entry_version_id, citation.memory_ref.artifact_id)
+            if key not in citations:
+                citations[key] = citation
+                first_seen[key] = len(first_seen)
+            scores[key] = _page_relevance(record.entry.text, terms)
+    except Exception:  # noqa: BLE001 - local scoring is an optimisation, FTS results still apply
+        pass
 
-    terms = keywords or tuple(re.findall(r"[a-z0-9]{2,}", question.lower()))
-    scored: list[tuple[float, int, "MemoryCitation"]] = []
     for key, citation in citations.items():
-        score = 0.0
+        if key in scores:
+            continue
         try:
             entry = (await memory.get(GetMemoryEntryRequest(citation=citation))).entry
-            text = entry.text.lower()
-            matched = 0
-            for term in terms:
-                occurrences = text.count(term)
-                if occurrences:
-                    matched += 1
-                    score += 2 + min(occurrences, 3)
-            if terms and matched == len(terms):
-                score += 5
+            scores[key] = _page_relevance(entry.text, terms)
         except Exception:  # noqa: BLE001 - a read failure must not drop otherwise searchable evidence
-            score = 0.0
-        scored.append((score, first_seen[key], citation))
+            scores[key] = 0.0
 
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return tuple(citation for _score, _order, citation in scored[:limit])
+    ranked = sorted(
+        citations,
+        key=lambda key: (-(scores.get(key, 0.0) + 6.0 / (1.0 + fts_rank.get(key, 1000))), first_seen[key]),
+    )
+    return tuple(citations[key] for key in ranked[:limit])
+
+
+def _page_relevance(text: str, terms: Sequence[str]) -> float:
+    """Score one page by how much of the question it literally covers."""
+
+    lowered = text.lower()
+    if not terms:
+        return 0.0
+    matched = 0
+    frequency = 0
+    for term in terms:
+        occurrences = lowered.count(term)
+        if occurrences:
+            matched += 1
+            frequency += min(occurrences, 5)
+    coverage = matched / len(terms)
+    return coverage * 10.0 + frequency * 0.5
 
 
 __all__ = [

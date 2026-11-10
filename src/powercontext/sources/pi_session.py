@@ -175,7 +175,7 @@ def _event_from_record(session_id: str, record: dict[str, Any]) -> PiEventInput 
         elif role == "bashExecution":
             command = _optional_text(message.get("command"))
             output = _optional_text(message.get("output"))
-            body = f"$ {command}\n{output}" if output else f"$ {command}"
+            body = f"$ {command}\n{output}"
         else:
             body = _content_text(message.get("content"))
     elif event_type == "compaction" or event_type == "branch_summary":
@@ -186,8 +186,7 @@ def _event_from_record(session_id: str, record: dict[str, Any]) -> PiEventInput 
         body = _content_text(record.get("content"))
     else:
         return None
-    body = body.rstrip()
-    if not body:
+    if not body.strip():
         return None
     return PiEventInput(
         session_id=session_id,
@@ -310,9 +309,18 @@ class PiSessionConnector(Connector):
         self.leaf_id = leaf_id
 
     async def run(self, session: ConnectorRunSession, /) -> ConnectorRunCompletion:
-        events = parse_pi_session(PiSessionInput(content=self.path.read_bytes(), leaf_id=self.leaf_id))
+        content = self.path.read_bytes()
+        events = parse_pi_session(PiSessionInput(content=content, leaf_id=self.leaf_id))
         checkpoint = session.checkpoint
         known = _known_events(checkpoint)
+
+        # Detect rewritten history anywhere in the archive, including events that are no longer
+        # on the selected branch: an imported event's raw record is immutable evidence.
+        archive = _archive_records(content)
+        for event_id, previous_digest in known.items():
+            record = archive.get(event_id)
+            if record is not None and _record_digest(record) != previous_digest:
+                raise ValueError(f"imported Pi event changed: {event_id!r}")  # noqa: TRY003
 
         digests: list[tuple[PiEventInput, str]] = [
             (event, _record_digest(event.record)) for event in events
@@ -332,6 +340,24 @@ class PiSessionConnector(Connector):
             status=ConnectorRunStatus.COMPLETE,
             checkpoint={"schema": CHECKPOINT_SCHEMA, "events": known},
         )
+
+
+def _archive_records(content: bytes) -> dict[str, dict[str, JsonValue]]:
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise ValueError("Pi session content must be valid UTF-8") from error
+    records: dict[str, dict[str, JsonValue]] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError("Pi session lines must be valid JSON") from error
+        if isinstance(record, dict) and isinstance(record.get("id"), str):
+            records[record["id"]] = record
+    return records
 
 
 def _known_events(checkpoint: JsonValue | None) -> dict[str, str]:
