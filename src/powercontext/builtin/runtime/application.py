@@ -2700,6 +2700,9 @@ class ScopedTopicMemoryApplication:
                         "unit": "topic-memory",
                     },
                 )
+        hits = await self._runtime.lifecycle.filter_topic_hits(self.scope_id, result.hits)
+        if len(hits) != len(result.hits):
+            result = result.model_copy(update={"hits": hits})
         return result
 
     async def _search_with_embedding(
@@ -2795,7 +2798,13 @@ class ScopedTopicMemoryApplication:
         if not 1 <= limit <= 100:
             raise InvalidRuntimeRequestError("topic-memory-browse-limit")
         async with self._runtime._scoped_operation(self.scope_id):
-            return await self._runtime._topic_memory_browse(self.scope_id, limit=limit, after=after)
+            items = await self._runtime._topic_memory_browse(self.scope_id, limit=limit, after=after)
+        unavailable = await self._runtime.lifecycle.for_scope(self.scope_id).unavailable_topic_refs()
+        return tuple(
+            item
+            for item in items
+            if (item.artifact_ref.family, item.artifact_ref.artifact_id, item.artifact_ref.revision) not in unavailable
+        )
 
     async def flush(self) -> TopicMemoryFlushResult:
         if not self._runtime._topic_memory_processing_available or self._runtime._topic_memory_flush is None:
@@ -3131,6 +3140,9 @@ class BuiltinRuntime:
         self.memory = MemoryApplication(self)
         self.topic_memory = TopicMemoryApplication(self)
         self.records = RecordApplication(self)
+        from powercontext.builtin.runtime.source_lifecycle import LifecycleApplication
+
+        self.lifecycle = LifecycleApplication(self)
         self.prompts = PromptApplication(self)
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
@@ -3360,10 +3372,10 @@ class BuiltinRuntime:
         from powercontext.builtin.persistence.cursors import SourceCursorRepository
 
         profile = getattr(self._provider, "database", None)
-        if profile is None or not hasattr(profile, "database"):
+        if profile is None or not hasattr(profile, "transaction"):
             return 0
         repository = SourceCursorRepository()
-        async with profile.database.transaction() as connection:
+        async with profile.transaction() as connection:
             stored = await repository.load(connection, scope_id, TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
         return 0 if stored is None else stored.cursor.sequence
 
