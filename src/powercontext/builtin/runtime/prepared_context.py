@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from itertools import chain
@@ -93,6 +94,16 @@ class PreparedContextOmissions:
 
 
 @dataclass(frozen=True)
+class PreparedContextFragment:
+    """One literal excerpt selected from a Memory entry for query-driven evidence."""
+
+    address: MemoryEntryAddress
+    start: int
+    end: int
+    text: str
+
+
+@dataclass(frozen=True)
 class PreparedContextBuild:
     """Final public context and the exact origins selected to produce it.
 
@@ -106,6 +117,7 @@ class PreparedContextBuild:
     origins: tuple[PreparedContextOrigin, ...]
     omissions: PreparedContextOmissions = PreparedContextOmissions()
     code_origins: tuple[CodeEvidenceRef, ...] = ()
+    fragments: tuple[PreparedContextFragment, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -235,6 +247,13 @@ class PreparedContextBuilder:
         if sum(len(candidates.hits) for candidates in experience_candidates) > self.experience_candidate_limit:
             raise PreparedContextInvariantError("experience-candidate-limit")
 
+        if request.evidence_selection and request.assembly is None:
+            return self._build_evidence_selection(
+                request=request,
+                current_scope_id=current_scope_id,
+                memory_candidates=memory_candidates,
+            )
+
         content, origins, omissions = self._select_entries(
             request=request,
             current_scope_id=current_scope_id,
@@ -346,6 +365,69 @@ class PreparedContextBuilder:
         if not entries:
             return None, (), omissions
         return _render(entries), tuple(entry.origin for entry in entries), omissions
+
+    def _build_evidence_selection(
+        self,
+        *,
+        request: PrepareContextRequest,
+        current_scope_id: str | None,
+        memory_candidates: Sequence[PreparedMemoryCandidates],
+    ) -> PreparedContextBuild:
+        """Select literal query-relevant excerpts from Memory candidates within the byte budget."""
+
+        hits: list[tuple[MemoryEntryAddress, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for candidates in memory_candidates:
+            scope_id = candidates.scope_id or current_scope_id or ""
+            for hit in candidates.hits:
+                key = (scope_id, hit.entry_id, hit.entry_version_id)
+                if key in seen or not hit.text.strip():
+                    continue
+                seen.add(key)
+                address = MemoryEntryAddress(
+                    memory=ArtifactAddress(scope_id=scope_id, artifact=hit.memory_ref),
+                    entry_id=hit.entry_id,
+                    entry_version_id=hit.entry_version_id,
+                )
+                hits.append((address, hit.text))
+        if not hits:
+            return PreparedContextBuild(context=self.empty(), origins=())
+
+        ranked = _rank_evidence_segments(hits, _selection_terms(request.query))
+        fragments: list[PreparedContextFragment] = []
+        items: list[dict[str, object]] = []
+        for address, text, start, end in ranked:
+            if len(fragments) >= self.entry_limit:
+                break
+            citation = {
+                "scope_id": address.memory.scope_id,
+                "memory_ref": address.memory.artifact.model_dump(mode="json"),
+                "entry_id": address.entry_id,
+                "entry_version_id": address.entry_version_id,
+            }
+            item = {
+                "citation": citation,
+                "content": text[start:end],
+                "start": start,
+                "end": end,
+            }
+            if _fragments_bytes((*items, item)) > request.max_bytes:
+                fitted = _fit_fragment(items, address, text, start, end, request.max_bytes)
+                if fitted is None:
+                    continue
+                fragments.append(fitted[0])
+                items.append(fitted[1])
+                break
+            fragments.append(PreparedContextFragment(address=address, start=start, end=end, text=text[start:end]))
+            items.append(item)
+        if not fragments:
+            return PreparedContextBuild(context=self.empty(), origins=())
+        content = _render_fragments(items)
+        return PreparedContextBuild(
+            context=PreparedContext(status="ready", content=content, content_bytes=len(content.encode("utf-8"))),
+            origins=tuple(fragment.address for fragment in fragments),
+            fragments=tuple(fragments),
+        )
 
     def _select_text(
         self,
@@ -658,6 +740,104 @@ class PreparedContextBuilder:
         if best is None:
             return _EntryFit(dropped_no_fitting_truncation=True)
         return _EntryFit(entry=best)
+
+
+_SENTENCE_PATTERN = re.compile(r"[^.!?。！？；;\n]+[.!?。！？；;]?")
+
+
+def _selection_terms(query: str) -> tuple[str, ...]:
+    terms = re.findall(r"[a-z0-9]{2,}", query.lower())
+    terms.extend(re.findall(r"[\u4e00-\u9fff]{2,}", query))
+    return tuple(dict.fromkeys(terms))
+
+
+def _segments(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for match in _SENTENCE_PATTERN.finditer(text):
+        start, end = match.span()
+        segment = text[start:end]
+        start += len(segment) - len(segment.lstrip())
+        end -= len(segment) - len(segment.rstrip())
+        if end > start:
+            spans.append((start, end))
+    return spans
+
+
+def _rank_evidence_segments(
+    hits: Sequence[tuple[MemoryEntryAddress, str]],
+    terms: Sequence[str],
+) -> list[tuple[MemoryEntryAddress, str, int, int]]:
+    ranked: list[tuple[int, int, int, MemoryEntryAddress, str, int]] = []
+    for order, (address, text) in enumerate(hits):
+        for start, end in _segments(text):
+            segment = text[start:end]
+            lowered = segment.lower()
+            score = 0
+            for term in terms:
+                occurrences = lowered.count(term) if term.isascii() else segment.count(term)
+                if occurrences:
+                    score += 2 + min(occurrences, 3)
+            if score > 0:
+                ranked.append((score, order, start, address, text, end))
+    if not ranked:
+        for order, (address, text) in enumerate(hits[:2]):
+            spans = _segments(text)
+            if spans:
+                start, end = spans[0]
+                ranked.append((0, order, start, address, text, end))
+    ranked.sort(key=lambda item: (-item[0], item[1], item[2]))
+    return [(address, text, start, end) for (_score, _order, start, address, text, end) in ranked]
+
+
+def _render_fragments(items: Sequence[dict[str, object]]) -> str:
+    envelope = {"trust": "untrusted_history", "items": list(items)}
+    encoded = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+    return "\n\n".join((TRUST_POLICY, f"{_BEGIN_MARKER}\n{encoded}\n{_END_MARKER}"))
+
+
+def _fragments_bytes(items: Sequence[dict[str, object]]) -> int:
+    return len(_render_fragments(items).encode("utf-8"))
+
+
+def _fit_fragment(
+    prior_items: Sequence[dict[str, object]],
+    address: MemoryEntryAddress,
+    text: str,
+    start: int,
+    end: int,
+    max_bytes: int,
+) -> tuple[PreparedContextFragment, dict[str, object]] | None:
+    citation = {
+        "scope_id": address.memory.scope_id,
+        "memory_ref": address.memory.artifact.model_dump(mode="json"),
+        "entry_id": address.entry_id,
+        "entry_version_id": address.entry_version_id,
+    }
+    low, high = 1, end - start
+    best: tuple[int, dict[str, object]] | None = None
+    while low <= high:
+        middle = (low + high) // 2
+        item: dict[str, object] = {
+            "citation": citation,
+            "content": text[start : start + middle],
+            "start": start,
+            "end": start + middle,
+        }
+        if _fragments_bytes((*prior_items, item)) <= max_bytes:
+            best = (middle, item)
+            low = middle + 1
+        else:
+            high = middle - 1
+    if best is None or best[0] < 16:
+        return None
+    length, item = best
+    fragment = PreparedContextFragment(
+        address=address,
+        start=start,
+        end=start + length,
+        text=text[start : start + length],
+    )
+    return fragment, item
 
 
 def _interleave(
