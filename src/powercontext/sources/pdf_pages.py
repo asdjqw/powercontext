@@ -67,7 +67,7 @@ _SYNONYMS = {
     "profit": ("profit", "income", "earn", "margin"),
     "revenue": ("revenu", "sale"),
     "sale": ("sale", "revenu"),
-    "capex": ("capital expenditure", "purchas", "property", "equipment"),
+    "capex": ("capex", "capital expenditure", "purchas", "property", "plant", "equipment", "net"),
     "expenditure": ("expenditur", "capital expenditure", "purchas"),
     "depreciation": ("depreci", "amort"),
     "amortization": ("amort", "depreci"),
@@ -113,7 +113,7 @@ _INTENT_HEADINGS = {
     ),
     "tax": ("effective tax rate", "income taxes", "provision for income taxes"),
     "margin": ("gross margin", "operating margin", "results of operations", "gross profit"),
-    "capex": ("capital expenditures", "purchases of property", "property plant and equipment", "capital spending"),
+    "capex": ("capital expenditures", "purchases of property", "property, plant and equipment", "capital spending"),
     "debt": ("long-term debt", "short-term borrowings", "borrowings", "debt"),
     "dividend": ("dividends", "dividend"),
     "employee": ("employees", "employee", "human capital", "headcount"),
@@ -133,6 +133,27 @@ _INTENT_HEADINGS = {
     ),
     "business": ("item 1. business", "business overview", "our business"),
     "production": ("production rate", "production rates", "production", "commercial airplanes", "deliveries"),
+    "operations": (
+        "results of operations",
+        "analysis of consolidated",
+        "management's discussion and analysis",
+        "management's discussion",
+    ),
+    "acquisition": ("acquisitions", "business acquisitions", "business combinations", "acquisition"),
+}
+
+_INTENT_SLOTS = {
+    "income": 2,
+    "cash": 2,
+    "balance": 2,
+    "equity": 1,
+    "operations": 2,
+    "capex": 2,
+    "acquisition": 2,
+    "segment": 1,
+    "geography": 1,
+    "legal": 1,
+    "production": 1,
 }
 
 _INTENT_TRIGGERS = {
@@ -155,7 +176,7 @@ _INTENT_TRIGGERS = {
     "segment": ("segment", "category", "categories", "product line", "service line"),
     "tax": ("tax rate", "effective tax", "income tax"),
     "margin": ("margin", "gross profit"),
-    "capex": ("capital expenditure", "capex", "capital intensive", "capital spending"),
+    "capex": ("capital expenditure", "capex", "capital intensive", "capital spending", "ppne", "property plant"),
     "debt": ("debt", "borrowings", "leverage"),
     "dividend": ("dividend", "capital return", "buyback", "repurchase"),
     "employee": ("employee", "headcount", "workforce"),
@@ -170,6 +191,8 @@ _INTENT_TRIGGERS = {
     "cover": ("registered to trade", "securities exchange", "registered securities", "registered pursuant", "ticker"),
     "business": ("product", "service", "business", "market", "compete", "customer", "sell", "offer"),
     "production": ("production rate", "production", "forecast", "delivery", "deliveries"),
+    "operations": ("growth", "grow", "drove", "drive", "margin", "change", "increase", "decrease", "results"),
+    "acquisition": ("acquire", "acquisition", "acquired", "merger", "business combination"),
 }
 
 _FINANCIAL_TRIGGERS = (
@@ -444,6 +467,10 @@ def _heading_boost(text: str, intents: set[str], terms: Sequence[str]) -> float:
     return value
 
 
+def _page_head(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower())[:1200]
+
+
 def _specifications(terms: Sequence[str]) -> dict[tuple[str, str], float]:
     specs: dict[tuple[str, str], float] = {}
     for term in terms:
@@ -465,6 +492,14 @@ def _rank(
     """Rank page entries by question intent, section headings and BM25 coverage."""
 
     terms = _content_terms(question)
+    grouped: dict[str, list[Any]] = {}
+    order: list[str] = []
+    for record, text, key in corpus:
+        if key not in grouped:
+            grouped[key] = [record, []]
+            order.append(key)
+        grouped[key][1].append(text)
+    corpus = [(grouped[key][0], "\n".join(grouped[key][1]), key) for key in order]
     if not terms:
         selected: list[tuple[Any, str]] = []
         seen: set[str] = set()
@@ -516,7 +551,44 @@ def _rank(
             )
     for index, (record, text, _) in enumerate(corpus):
         scores[index] += _heading_boost(text, intents, terms)
-    order = sorted(range(total_pages), key=lambda index: (-scores[index], corpus[index][2]))
+    heads = [_page_head(text) for _, text, _ in corpus]
+    forced: list[int] = []
+    for intent, slot_count in _INTENT_SLOTS.items():
+        if intent not in intents:
+            continue
+        if intent == "acquisition":
+            matched = []
+            for index, (_, text, _) in enumerate(corpus):
+                lowered = text.lower()
+                hits = lowered.count("acquisition") + lowered.count("acquired")
+                if hits:
+                    matched.append((hits, index))
+            matched.sort(key=lambda pair: (-pair[0], pair[1]))
+            for _, index in matched[:slot_count]:
+                if index not in forced:
+                    forced.append(index)
+            continue
+        chosen: list[int] = []
+        for heading in _INTENT_HEADINGS.get(intent, ()):
+            matches = [(head.find(heading), index) for index, head in enumerate(heads) if heading in head]
+            if not matches:
+                continue
+            matches.sort(key=lambda pair: (pair[0], -scores[pair[1]]))
+            best = matches[0][1]
+            if best not in chosen:
+                chosen.append(best)
+            if len(chosen) >= slot_count:
+                break
+        for index in chosen:
+            if index not in forced:
+                forced.append(index)
+    if len(forced) > 14:
+        forced = forced[:14]
+    order = forced + [
+        index
+        for index in sorted(range(total_pages), key=lambda index: (-scores[index], corpus[index][2]))
+        if index not in forced
+    ]
     selected: list[tuple[Any, str]] = []
     seen: set[str] = set()
     for index in order:
