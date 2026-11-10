@@ -4387,6 +4387,10 @@ function registerGuidance(ctx) {
 */
 const STATUS_SCHEMA = "powercontext.dsh-status.v1";
 const STATUS_STALE_AFTER_MS = 3e4;
+/** Only a bounded package version may cross the Host/browser allowlist. */
+function packageVersion(value) {
+	return typeof value === "string" && /^[0-9][0-9A-Za-z.+_-]{0,127}$/.test(value) ? value : null;
+}
 
 //#endregion
 //#region src/status-bridge.ts
@@ -4540,6 +4544,7 @@ function readEndpoint(config) {
 var StatusBridge = class {
 	options;
 	now;
+	packageVersion = null;
 	liveness = unknownProbe();
 	readiness = unknownProbe();
 	capabilities = unknownProbe();
@@ -4609,6 +4614,7 @@ var StatusBridge = class {
 			session: this.sessionPayload(session, scope),
 			runtime,
 			server: {
+				package_version: this.packageVersion,
 				liveness: probePayload(this.liveness, now),
 				readiness: probePayload(this.readiness, now),
 				capabilities: probePayload(this.capabilities, now)
@@ -4735,6 +4741,7 @@ var StatusBridge = class {
 	}
 	async probe() {
 		this.generation += 1;
+		this.packageVersion = null;
 		try {
 			const liveness = await this.probeLiveness();
 			if (this.disposed) return;
@@ -4745,6 +4752,7 @@ var StatusBridge = class {
 				this.connectionState = "failed";
 				return;
 			}
+			await this.readPackageVersion();
 			const readiness$1 = await this.probeReadiness();
 			if (this.disposed) return;
 			this.readiness = readiness$1;
@@ -4769,6 +4777,14 @@ var StatusBridge = class {
 				this.nextProbeAt = now + (this.connectionState === "ready" ? READY_PROBE_TTL_MS : FAILED_PROBE_TTL_MS);
 			}
 			this.inFlight = null;
+		}
+	}
+	async readPackageVersion() {
+		try {
+			const response = await this.options.client.request("get_server_info", {}, combineSignals([this.abort.signal, AbortSignal.timeout(1e3)]));
+			if (!this.disposed) this.packageVersion = response.status === 200 && record(response.value) ? packageVersion(response.value.package_version) : null;
+		} catch {
+			this.packageVersion = null;
 		}
 	}
 	async probeLiveness() {
