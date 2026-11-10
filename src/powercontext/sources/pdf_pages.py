@@ -148,7 +148,7 @@ _INTENT_SLOTS = {
     "balance": 2,
     "equity": 1,
     "operations": 2,
-    "capex": 2,
+    "capex": 4,
     "acquisition": 2,
     "segment": 1,
     "geography": 1,
@@ -556,6 +556,41 @@ def _rank(
     for intent, slot_count in _INTENT_SLOTS.items():
         if intent not in intents:
             continue
+        if intent in _STATEMENT_INTENTS:
+            candidates: list[tuple[int, int]] = []
+            for heading in _INTENT_HEADINGS.get(intent, ()):
+                for index, head in enumerate(heads):
+                    position = head.find(heading)
+                    if 0 <= position <= 300:
+                        candidates.append((position, index))
+            candidates.sort(key=lambda pair: (pair[0], -scores[pair[1]]))
+            statement_chosen: list[int] = []
+            for _, index in candidates:
+                if index in statement_chosen:
+                    continue
+                statement_chosen.append(index)
+                if len(statement_chosen) >= slot_count:
+                    break
+            for index in statement_chosen:
+                if index not in forced:
+                    forced.append(index)
+            continue
+        if intent == "capex":
+            matched_capex = []
+            for index, (_, text, _) in enumerate(corpus):
+                lowered = text.lower()
+                hits = (
+                    lowered.count("capital expenditure")
+                    + lowered.count("capital spending")
+                    + lowered.count("property, plant")
+                )
+                if hits:
+                    matched_capex.append((hits, index))
+            matched_capex.sort(key=lambda pair: (-pair[0], pair[1]))
+            for _, index in matched_capex[:slot_count]:
+                if index not in forced:
+                    forced.append(index)
+            continue
         if intent == "acquisition":
             matched = []
             for index, (_, text, _) in enumerate(corpus):
@@ -570,15 +605,20 @@ def _rank(
             continue
         chosen: list[int] = []
         for heading in _INTENT_HEADINGS.get(intent, ()):
-            matches = [(head.find(heading), index) for index, head in enumerate(heads) if heading in head]
+            matches = [
+                (head.find(heading), index)
+                for index, head in enumerate(heads)
+                if heading in head and "table of contents" not in head
+            ]
             if not matches:
                 continue
-            matches.sort(key=lambda pair: (pair[0], -scores[pair[1]]))
-            best = matches[0][1]
-            if best not in chosen:
-                chosen.append(best)
-            if len(chosen) >= slot_count:
-                break
+            if intent in _STATEMENT_INTENTS:
+                matches.sort(key=lambda pair: (pair[0], -scores[pair[1]]))
+            else:
+                matches.sort(key=lambda pair: -scores[pair[1]])
+            for _, index in matches[:slot_count]:
+                if index not in chosen:
+                    chosen.append(index)
         for index in chosen:
             if index not in forced:
                 forced.append(index)
