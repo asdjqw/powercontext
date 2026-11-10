@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import re
+from collections import Counter
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -35,52 +37,175 @@ from powercontext.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextE
 
 PDF_PAGE_SOURCE_TYPE = "pdf-page"
 _SOURCE_ID_PREFIX = "pdf"
-_STOPWORDS = frozenset(
-    {
-        "a",
-        "an",
-        "and",
-        "are",
-        "as",
-        "at",
-        "be",
-        "by",
-        "did",
-        "do",
-        "does",
-        "for",
-        "from",
-        "has",
-        "have",
-        "how",
-        "in",
-        "is",
-        "it",
-        "its",
-        "of",
-        "on",
-        "or",
-        "that",
-        "the",
-        "their",
-        "this",
-        "to",
-        "was",
-        "were",
-        "what",
-        "when",
-        "which",
-        "who",
-        "why",
-        "with",
-        "any",
-        "reported",
-        "report",
-        "company",
-        "fy2022",
-        "fy2021",
-    }
+_TOKEN = re.compile(r"[a-z]+|\d+")
+
+_BOILERPLATE = re.compile(
+    r"(give a response to the question|respond to the question|answer in usd|in your response|"
+    r"by relying on|by assuming the perspective|using the details shown|"
+    r"please state that and explain why|if .*? is not a useful metric.*?why|"
+    r"respond to the question by)"
 )
+
+_STOPWORDS = frozenset(
+    """a an and are as at be been being by can could did do does for from had has have how in
+    into is it its may might must not of on or should so than that the their them then there these
+    they this those to was were what when where which who why will with would you your
+    give response question questions relying relied rely detail details shown show statement
+    statements please following according using use used answer assume assuming perspective
+    investment analyst based about above after again against all also am any because before below
+    between both but each few further here more most no nor now off once only other our out over
+    own same she he her his us very we company companies inc corporation""".split()
+)
+
+_SYNONYMS = {
+    "geograph": ("countr", "territor", "region", "segment", "international", "amesa", "apac", "europe", "asia"),
+    "countr": ("countr", "territor"),
+    "region": ("region", "geograph", "countr"),
+    "legal": ("litig", "proceed", "claim", "regulat", "investig"),
+    "battle": ("litig", "proceed", "claim", "legal"),
+    "income": ("income", "profit", "earn", "margin"),
+    "profit": ("profit", "income", "earn", "margin"),
+    "revenue": ("revenu", "sale"),
+    "sale": ("sale", "revenu"),
+    "capex": ("capital expenditure", "purchas", "property", "equipment"),
+    "expenditure": ("expenditur", "capital expenditure", "purchas"),
+    "depreciation": ("depreci", "amort"),
+    "amortization": ("amort", "depreci"),
+    "tax": ("tax", "effective tax rate"),
+    "debt": ("debt", "borrow", "oblig"),
+    "borrow": ("borrow", "debt"),
+    "dividend": ("dividend", "distribut"),
+    "employee": ("employ", "headcount"),
+    "customer": ("customer", "client"),
+    "liquidity": ("liquid", "cash"),
+    "margin": ("margin", "profit"),
+    "repurchase": ("repurchas", "buyback"),
+    "share": ("share", "stock"),
+}
+
+_INTENT_HEADINGS = {
+    "income": (
+        "statement of income",
+        "statements of income",
+        "statement of operations",
+        "statements of operations",
+        "statement of earnings",
+        "statements of earnings",
+        "consolidated results of operations",
+    ),
+    "cash": ("statement of cash flows", "statements of cash flows", "cash flows from operating"),
+    "balance": (
+        "balance sheet",
+        "balance sheets",
+        "statements of financial position",
+        "statement of financial position",
+    ),
+    "equity": ("statement of equity", "statements of equity", "stockholders equity", "shareholders equity"),
+    "legal": ("legal proceedings", "legal proceeding", "litigation", "legal matters", "claims and legal"),
+    "geography": ("geographic", "countries and territories", "reportable segments", "segment data"),
+    "segment": (
+        "business segment",
+        "business segments",
+        "segment data",
+        "summary of business segment",
+        "reportable segments",
+        "sales and operating income",
+    ),
+    "tax": ("effective tax rate", "income taxes", "provision for income taxes"),
+    "margin": ("gross margin", "operating margin", "results of operations", "gross profit"),
+    "capex": ("capital expenditures", "purchases of property", "property plant and equipment", "capital spending"),
+    "debt": ("long-term debt", "short-term borrowings", "borrowings", "debt"),
+    "dividend": ("dividends", "dividend"),
+    "employee": ("employees", "employee", "human capital", "headcount"),
+    "customer": ("customers", "customer"),
+    "properties": ("properties", "property", "real estate"),
+    "liquidity": ("liquidity", "capital resources", "cash flows"),
+    "risk": ("risk factors", "risk factor"),
+    "revenue": ("net sales", "net revenue", "total revenues", "revenues", "summary of business segment"),
+    "goodwill": ("goodwill", "intangible assets"),
+    "pension": ("pension", "retirement"),
+    "lease": ("leases", "lease"),
+    "cover": (
+        "securities registered pursuant",
+        "registered pursuant to section 12",
+        "title of each class",
+        "name of each exchange",
+    ),
+    "business": ("item 1. business", "business overview", "our business"),
+    "production": ("production rate", "production rates", "production", "commercial airplanes", "deliveries"),
+}
+
+_INTENT_TRIGGERS = {
+    "income": (
+        "income statement",
+        "profit and loss",
+        "p&l",
+        "statement of operations",
+        "statements of operations",
+        "statement of earnings",
+        "statements of earnings",
+        "operating margin",
+        "gross margin",
+    ),
+    "cash": ("cash flow statement", "statement of cash flows", "statements of cash flows", "cash flow"),
+    "balance": ("balance sheet", "financial position", "balance sheets"),
+    "equity": ("stockholders equity", "shareholders equity", "statement of equity"),
+    "legal": ("legal", "litigation", "lawsuit", "battles", "proceedings"),
+    "geography": ("geograph", "countries", "geographies", "regions", "operates in"),
+    "segment": ("segment", "category", "categories", "product line", "service line"),
+    "tax": ("tax rate", "effective tax", "income tax"),
+    "margin": ("margin", "gross profit"),
+    "capex": ("capital expenditure", "capex", "capital intensive", "capital spending"),
+    "debt": ("debt", "borrowings", "leverage"),
+    "dividend": ("dividend", "capital return", "buyback", "repurchase"),
+    "employee": ("employee", "headcount", "workforce"),
+    "customer": ("customer", "client"),
+    "properties": ("properties", "real estate", "facilities"),
+    "liquidity": ("liquidity", "cash position"),
+    "risk": ("risk factor", "risks"),
+    "revenue": ("revenue", "sales", "net sales"),
+    "goodwill": ("goodwill", "intangible"),
+    "pension": ("pension", "retirement"),
+    "lease": ("lease",),
+    "cover": ("registered to trade", "securities exchange", "registered securities", "registered pursuant", "ticker"),
+    "business": ("product", "service", "business", "market", "compete", "customer", "sell", "offer"),
+    "production": ("production rate", "production", "forecast", "delivery", "deliveries"),
+}
+
+_FINANCIAL_TRIGGERS = (
+    "income",
+    "revenue",
+    "sales",
+    "profit",
+    "earn",
+    "margin",
+    "ebitda",
+    "ebit",
+    "tax",
+    "capex",
+    "capital",
+    "expense",
+    "cost",
+    "cash",
+    "asset",
+    "liabilit",
+    "equity",
+    "debt",
+    "borrow",
+    "dividend",
+    "buyback",
+    "repurchase",
+    "goodwill",
+    "pension",
+    "lease",
+    "insurance",
+    "growth",
+    "ratio",
+    "return",
+    "liquidity",
+)
+
+_STATEMENT_INTENTS = frozenset({"income", "cash", "balance", "equity"})
 
 
 class PDFDocumentInput(BaseModel):
@@ -148,7 +273,7 @@ def pdf_page_source_id(document_id: str, document_sha256: str, page_number: int)
     source_id = f"{_SOURCE_ID_PREFIX}:{encoded_document}:{document_sha256}:{page_number}"
     if len(source_id) > MAX_SOURCE_ID_LENGTH:
         digest = hashlib.sha256(document_id.encode("utf-8")).hexdigest()
-        source_id = f"{_SOURCE_ID_PREFIX}:{digest}:{document_sha256}:{page_number}"
+        source_id = f"{_SOURCE_ID_PREFIX}:h:{digest}:{document_sha256}:{page_number}"
     if len(source_id) > MAX_SOURCE_ID_LENGTH:
         raise ValueError(f"page identity must not exceed {MAX_SOURCE_ID_LENGTH} characters")  # noqa: TRY003
     return source_id
@@ -218,13 +343,205 @@ PDF_PAGE_SOURCE_DEFINITION = AdapterSourceDefinition(
 )
 
 
-def _question_keywords(question: str) -> tuple[str, ...]:
-    tokens = re.findall(r"[a-z0-9][a-z0-9&.'-]*", question.lower())
-    keywords = [token.strip(".") for token in tokens if token not in _STOPWORDS and len(token) > 1]
-    seen: dict[str, None] = {}
-    for keyword in keywords:
-        seen.setdefault(keyword, None)
-    return tuple(seen)
+def _normalize_question(question: str) -> str:
+    text = question.lower()
+    text = re.sub(r"[-–—]", " ", text)
+    text = text.replace("p & l", "income statement").replace("p&l", "income statement")
+    text = re.sub(r"\bd\s*&\s*a\b", "depreciation amortization", text)
+    text = re.sub(r"\bsg\s*&\s*a\b", "selling general administrative", text)
+    text = re.sub(r"\bcogs\b", "cost of sales", text)
+    text = re.sub(r"\br\s*&\s*d\b", "research development", text)
+    text = re.sub(r"\bm\s*&\s*a\b", "merger acquisition", text)
+    return _BOILERPLATE.sub(" ", text)
+
+
+def _content_terms(question: str) -> list[str]:
+    tokens = _TOKEN.findall(_normalize_question(question))
+    return [token for token in tokens if token not in _STOPWORDS and len(token) > 1]
+
+
+def _similar(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if len(left) < 5 or len(right) < 5:
+        return False
+    if left.startswith(right) or right.startswith(left):
+        return True
+    common = 0
+    for first, second in zip(left, right):
+        if first != second:
+            break
+        common += 1
+    return common >= 6
+
+
+def _intents(question: str) -> set[str]:
+    text = _normalize_question(question)
+    found = {intent for intent, triggers in _INTENT_TRIGGERS.items() if any(term in text for term in triggers)}
+    if any(term in text for term in _FINANCIAL_TRIGGERS) and not (_STATEMENT_INTENTS & found):
+        found |= _STATEMENT_INTENTS
+    return found
+
+
+def _heading_boost(text: str, intents: set[str], terms: Sequence[str]) -> float:
+    lowered = re.sub(r"\s+", " ", text.lower())
+    head = lowered[:240]
+    value = 0.0
+    for intent in intents:
+        for heading in _INTENT_HEADINGS.get(intent, ()):
+            if heading in lowered:
+                strong = 22.0 if intent in _STATEMENT_INTENTS else 16.0
+                value += strong if heading in head else strong * 0.55
+    for phrase in (
+        "item 3. legal proceedings",
+        "legal proceedings",
+        "geographic operations",
+        "business environment",
+        "results of operations",
+    ):
+        if phrase in head:
+            value += 4.0
+    if "customer" in intents:
+        value += 8.0 + min(lowered.count("customer") + lowered.count("client"), 10) * 0.5
+        value += min(
+            lowered.count("airline")
+            + lowered.count("government")
+            + lowered.count("contract")
+            + lowered.count("retailer")
+            + lowered.count("distributor")
+            + lowered.count("consumer")
+            + lowered.count("defense"),
+            10,
+        ) * 3.0
+        for phrase in ("u.s. government", "government contracts", "revenues from", "commercial airlines"):
+            if phrase in lowered:
+                value += 4.0
+    if "business" in intents and "item 1. business" in head:
+        value += 30.0
+    if "legal" in intents:
+        value += min(lowered.count("legal") + lowered.count("litigation") + lowered.count("proceeding"), 12) * 1.5
+    if "geography" in intents:
+        regions = (
+            "africa",
+            "asia",
+            "europe",
+            "latin america",
+            "middle east",
+            "north america",
+            "amesa",
+            "apac",
+            "international",
+        )
+        for region in regions:
+            if region in lowered:
+                value += 3.0
+    head_terms = set(_TOKEN.findall(head))
+    for term in terms:
+        for token in head_terms:
+            if _similar(term, token):
+                value += 1.5
+                break
+    return value
+
+
+def _specifications(terms: Sequence[str]) -> dict[tuple[str, str], float]:
+    specs: dict[tuple[str, str], float] = {}
+    for term in terms:
+        specs[("similar", term)] = 1.0
+        for key, expansions in _SYNONYMS.items():
+            if not term.startswith(key):
+                continue
+            for expansion in expansions:
+                kind = "prefix" if " " not in expansion else "similar"
+                specs[(kind, expansion)] = max(specs.get((kind, expansion), 0.0), 0.35)
+    return specs
+
+
+def _rank(
+    corpus: Sequence[tuple[Any, str, str]],
+    question: str,
+    limit: int,
+) -> list[tuple[Any, str]]:
+    """Rank page entries by question intent, section headings and BM25 coverage."""
+
+    terms = _content_terms(question)
+    if not terms:
+        selected: list[tuple[Any, str]] = []
+        seen: set[str] = set()
+        for record, _, key in corpus:
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append((record, key))
+            if len(selected) >= limit:
+                break
+        return selected
+    intents = _intents(question)
+    counters = [Counter(_TOKEN.findall(text.lower())) for _, text, _ in corpus]
+    lengths = [sum(counter.values()) for counter in counters]
+    average = sum(lengths) / max(1, len(lengths))
+    postings: dict[str, list[tuple[int, int]]] = {}
+    for index, counter in enumerate(counters):
+        for token, count in counter.items():
+            postings.setdefault(token, []).append((index, count))
+    specs = _specifications(terms)
+    page_terms: dict[tuple[str, str], list[tuple[int, int]]] = {}
+    for spec in specs:
+        kind, needle = spec
+        matched: list[tuple[int, int]] = []
+        for token, entries in postings.items():
+            if (token.startswith(needle) if kind == "prefix" else _similar(token, needle)):
+                matched.extend(entries)
+        page_terms[spec] = matched
+    total_pages = len(corpus)
+    idf = {}
+    for spec in specs:
+        document_count = len({index for index, _ in page_terms[spec]})
+        idf[spec] = math.log(1 + (total_pages - document_count + 0.5) / (document_count + 0.5))
+    scores = [0.0] * total_pages
+    for spec, weight in specs.items():
+        aggregated: dict[int, int] = {}
+        for index, count in page_terms[spec]:
+            aggregated[index] = aggregated.get(index, 0) + count
+        if not aggregated:
+            continue
+        for index, count in aggregated.items():
+            length = lengths[index]
+            scores[index] += (
+                weight
+                * idf[spec]
+                * count
+                * (1.2 + 1)
+                / (count + 1.2 * (1 - 0.75 + 0.75 * length / average))
+            )
+    for index, (record, text, _) in enumerate(corpus):
+        scores[index] += _heading_boost(text, intents, terms)
+    order = sorted(range(total_pages), key=lambda index: (-scores[index], corpus[index][2]))
+    selected: list[tuple[Any, str]] = []
+    seen: set[str] = set()
+    for index in order:
+        record, _, key = corpus[index]
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append((record, key))
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _page_corpus(entries: Sequence[Any]) -> list[tuple[Any, str, str]]:
+    corpus: list[tuple[Any, str, str]] = []
+    for record in entries:
+        references = tuple(
+            reference
+            for reference in (record.entry.sources or ())
+            if reference.source_type == PDF_PAGE_SOURCE_TYPE
+        )
+        if not references:
+            continue
+        corpus.append((record, record.entry.text, references[0].source_id))
+    return corpus
 
 
 async def search_pdf_pages(
@@ -234,89 +551,17 @@ async def search_pdf_pages(
 ) -> "tuple[MemoryCitation, ...]":
     """Search the scoped Memory for distinct physical evidence pages."""
 
-    from powercontext.builtin.artifacts.memory.models import MemoryCitation
-    from powercontext.builtin.runtime.models import GetMemoryEntryRequest, SearchMemoryRequest
-
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("limit must be a positive integer")  # noqa: TRY003
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be non-empty")  # noqa: TRY003
 
-    keywords = _question_keywords(question)
-    terms = keywords or tuple(re.findall(r"[a-z0-9]{2,}", question.lower()))
-    queries: list[str] = [question.strip()]
-    if keywords:
-        queries.extend(keyword for keyword in keywords[:6])
-        queries.append(" ".join(keywords[:6]))
-        queries.append(" ".join(keywords[:3]))
-
-    citations: dict[tuple[str, str, str], "MemoryCitation"] = {}
-    first_seen: dict[tuple[str, str, str], int] = {}
-    fts_rank: dict[tuple[str, str, str], int] = {}
-    fetch_limit = max(limit * 4, 20)
-    for query in queries:
-        try:
-            page = await memory.search(SearchMemoryRequest(query=query, mode="fts", limit=fetch_limit))
-        except Exception:  # noqa: BLE001 - one weak sub-query must not abort evidence retrieval
-            continue
-        for rank, hit in enumerate(page.hits):
-            key = (hit.entry_id, hit.entry_version_id, hit.memory_ref.artifact_id)
-            if key not in citations:
-                first_seen[key] = len(first_seen)
-                citations[key] = MemoryCitation(
-                    memory_ref=hit.memory_ref,
-                    entry_id=hit.entry_id,
-                    entry_version_id=hit.entry_version_id,
-                )
-            fts_rank[key] = min(fts_rank.get(key, rank), rank)
-
-    # The whole page set is small enough to score locally: reading every active page removes
-    # dependence on one query's postings, so evidence pages that share few literal tokens with
-    # the question still reach the reranker and can enter the top pages.
-    scores: dict[tuple[str, str, str], float] = {}
-    try:
-        page_entries = await memory.list()
-        for record in page_entries.entries:
-            citation = record.citation
-            key = (citation.entry_id, citation.entry_version_id, citation.memory_ref.artifact_id)
-            if key not in citations:
-                citations[key] = citation
-                first_seen[key] = len(first_seen)
-            scores[key] = _page_relevance(record.entry.text, terms)
-    except Exception:  # noqa: BLE001 - local scoring is an optimisation, FTS results still apply
-        pass
-
-    for key, citation in citations.items():
-        if key in scores:
-            continue
-        try:
-            entry = (await memory.get(GetMemoryEntryRequest(citation=citation))).entry
-            scores[key] = _page_relevance(entry.text, terms)
-        except Exception:  # noqa: BLE001 - a read failure must not drop otherwise searchable evidence
-            scores[key] = 0.0
-
-    ranked = sorted(
-        citations,
-        key=lambda key: (-(scores.get(key, 0.0) + 6.0 / (1.0 + fts_rank.get(key, 1000))), first_seen[key]),
-    )
-    return tuple(citations[key] for key in ranked[:limit])
-
-
-def _page_relevance(text: str, terms: Sequence[str]) -> float:
-    """Score one page by how much of the question it literally covers."""
-
-    lowered = text.lower()
-    if not terms:
-        return 0.0
-    matched = 0
-    frequency = 0
-    for term in terms:
-        occurrences = lowered.count(term)
-        if occurrences:
-            matched += 1
-            frequency += min(occurrences, 5)
-    coverage = matched / len(terms)
-    return coverage * 10.0 + frequency * 0.5
+    listing = await memory.list()
+    corpus = _page_corpus(listing.entries)
+    if not corpus:
+        corpus = [(record, record.entry.text, record.entry.entry_version_id) for record in listing.entries]
+    citations = _rank(corpus, question, limit)
+    return tuple(record.citation for record, _ in citations)
 
 
 __all__ = [
