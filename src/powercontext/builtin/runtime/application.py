@@ -3116,6 +3116,9 @@ class BuiltinRuntime:
         self._closed = False
         self._scheduler: AsyncIOScheduler | None = None
         self._scheduler_runtime_key: str | None = None
+        self._count_trigger_task: asyncio.Task[None] | None = None
+        self._count_trigger_stop: asyncio.Event | None = None
+        self._count_trigger_seen: dict[tuple[str, str], tuple[int, float]] = {}
         self.sources = SourceApplication(self)
         self.ingestion = RemoteIngestionApplication(self, remote_ingestion)
         self.code = CodeApplication(self, code_service or CodeService(CodeConfig()))
@@ -3274,12 +3277,122 @@ class BuiltinRuntime:
             self._dream_service.authorization_context = context
             self._dream_service.attest_candidate = attest_candidate
 
+    def _start_source_count_trigger(
+        self,
+        *,
+        memory_threshold: int | None,
+        topic_threshold: int | None,
+    ) -> None:
+        """Start count-based automatic admission when a threshold is configured."""
+
+        if memory_threshold is None and topic_threshold is None:
+            return
+        if self._count_trigger_task is not None:
+            return
+        self._count_trigger_stop = asyncio.Event()
+        self._count_trigger_task = asyncio.create_task(
+            self._source_count_trigger_loop(memory_threshold, topic_threshold)
+        )
+
+    async def _source_count_trigger_loop(
+        self,
+        memory_threshold: int | None,
+        topic_threshold: int | None,
+    ) -> None:
+        stop = self._count_trigger_stop
+        if stop is None:
+            return
+        while not stop.is_set():
+            try:
+                await self._reconcile_source_counts(memory_threshold, topic_threshold)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - admission must survive one bad Scope
+                log_safely(logger, logging.WARNING, "Source count admission failed", exc_info=error)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=0.15)
+            except asyncio.TimeoutError:
+                continue
+
+    async def _reconcile_source_counts(
+        self,
+        memory_threshold: int | None,
+        topic_threshold: int | None,
+    ) -> None:
+        scope_ids: list[str] = []
+        cursor: str | None = None
+        while True:
+            page = await self.records.list_scopes(limit=100, cursor=cursor)
+            scope_ids.extend(item.scope_id for item in page.items)
+            cursor = page.next_cursor
+            if not cursor:
+                break
+        for scope_id in scope_ids:
+            try:
+                async with self._context(scope_id) as context:
+                    entries = await context.sources.journal.entries()
+                if not entries:
+                    continue
+                positions = tuple(entry.position for entry in entries)
+                watermark = max(positions)
+                if memory_threshold is not None:
+                    cursor_sequence = (await self.memory.for_scope(scope_id).cursor()).sequence
+                    if sum(position > cursor_sequence for position in positions) >= memory_threshold:
+                        await self.memory.for_scope(scope_id).flush()
+                if topic_threshold is not None:
+                    cursor_sequence = await self._topic_cursor_sequence(scope_id)
+                    if sum(position > cursor_sequence for position in positions) >= topic_threshold:
+                        if self._topic_count_ready(scope_id, cursor_sequence, watermark):
+                            await self.topic_memory.for_scope(scope_id).flush()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001 - one Scope must not stop the others
+                log_safely(
+                    logger,
+                    logging.WARNING,
+                    "Source count admission failed for scope",
+                    exc_info=error,
+                    extra={"event": "processing.count_trigger.scope_failed", "outcome": "failure"},
+                )
+
+    async def _topic_cursor_sequence(self, scope_id: str) -> int:
+        from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+        from powercontext.builtin.persistence.cursors import SourceCursorRepository
+
+        profile = getattr(self._provider, "database", None)
+        if profile is None or not hasattr(profile, "database"):
+            return 0
+        repository = SourceCursorRepository()
+        async with profile.database.transaction() as connection:
+            stored = await repository.load(connection, scope_id, TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+        return 0 if stored is None else stored.cursor.sequence
+
+    def _topic_count_ready(self, scope_id: str, cursor_sequence: int, watermark: int) -> bool:
+        key = (scope_id, "topic-memory")
+        now = asyncio.get_running_loop().time()
+        previous = self._count_trigger_seen.get(key)
+        if previous is not None and previous[0] == cursor_sequence and previous[1] == watermark:
+            if now - previous[2] < 30.0:
+                return False
+        self._count_trigger_seen[key] = (cursor_sequence, watermark, now)
+        return True
+
     async def close(self) -> None:
         """Stop accepting work and await in-flight operations without closing the provider."""
 
         async with self._close_lock:
             if self._closed:
                 return
+            if self._count_trigger_task is not None:
+                if self._count_trigger_stop is not None:
+                    self._count_trigger_stop.set()
+                self._count_trigger_task.cancel()
+                try:
+                    await self._count_trigger_task
+                except asyncio.CancelledError:
+                    pass
+                self._count_trigger_task = None
+                self._count_trigger_stop = None
             if self._scheduler is not None and self._scheduler.running:
                 self._scheduler.pause()
             async with self._lifecycle:
