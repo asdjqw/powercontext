@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pyobvector import VECTOR, VectorIndex
 from sqlalchemy import (
     BigInteger,
@@ -42,7 +44,7 @@ from powercontext.builtin.artifacts.memory import (
     MemorySearchRequest,
 )
 from powercontext.builtin.artifacts.memory.canonical import embedding_content_hash, validate_embedding
-from powercontext.builtin.persistence.memory_index import memory_channel_hits
+from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, memory_channel_hits
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     MAX_MEMORY_ENTRY_ID_LENGTH,
@@ -504,3 +506,136 @@ def _embedding_hash(profile: EmbeddingProfile, entry_hash: str) -> str:
         normalization=profile.normalization,
         entry_content_hash=entry_hash,
     )
+
+
+_HYBRID_FTS_BRANCH_SQL = """
+SELECT 'fts' AS channel,
+       h.memory_artifact_id AS memory_artifact_id,
+       h.head_revision AS head_revision,
+       h.entry_id AS entry_id,
+       h.entry_version_id AS entry_version_id,
+       v.text AS text,
+       NULL AS distance,
+       MATCH(h.searchable_text) AGAINST (:query) AS score
+FROM pc_memory_entry_heads AS h
+JOIN pc_memory_entry_versions AS v
+  ON v.scope_id = h.scope_id
+ AND v.memory_artifact_id = h.memory_artifact_id
+ AND v.entry_version_id = h.entry_version_id
+WHERE h.scope_id = :scope_id
+  AND h.memory_artifact_id IN :memory_artifact_ids
+  AND MATCH(h.searchable_text) AGAINST (:query)
+{tag}
+ORDER BY score DESC, h.memory_artifact_id, h.entry_id, h.entry_version_id
+LIMIT :candidate_limit
+"""
+
+_HYBRID_VECTOR_BRANCH_SQL = """
+SELECT 'vector' AS channel,
+       m.memory_artifact_id AS memory_artifact_id,
+       m.head_revision AS head_revision,
+       m.entry_id AS entry_id,
+       m.entry_version_id AS entry_version_id,
+       v.text AS text,
+       l2_distance(m.embedding, :query_vector) AS distance,
+       0 AS score
+FROM pc_memory_vector_entries AS m
+JOIN pc_memory_entry_versions AS v
+  ON v.scope_id = m.scope_id
+ AND v.memory_artifact_id = m.memory_artifact_id
+ AND v.entry_version_id = m.entry_version_id
+WHERE m.scope_id = :scope_id
+  AND m.memory_artifact_id IN :memory_artifact_ids
+{tag}
+ORDER BY l2_distance(m.embedding, :query_vector) APPROXIMATE
+LIMIT :candidate_limit
+"""
+
+
+def _hybrid_candidate_sql(fts_tag: str, vector_tag: str) -> str:
+    """One statement whose plan contains a text-retrieval scan and a vector index."""
+
+    return (
+        f"({_HYBRID_FTS_BRANCH_SQL.format(tag=fts_tag)})"
+        " UNION ALL "
+        f"({_HYBRID_VECTOR_BRANCH_SQL.format(tag=vector_tag)})"
+    )
+
+
+class OceanBaseMemoryHybridIndex(CompositeMemoryIndex):
+    """Run FTS and vector candidate retrieval in one native statement.
+
+    The two branches keep the exact predicates and per-channel ``LIMIT`` of the
+    independent indexes so fusion sees the same candidates the dual-query path
+    produced, while the statement itself is a single round trip.
+    """
+
+    def __init__(self, *indexes: Any) -> None:
+        super().__init__(*indexes)
+        fts = next((index for index in indexes if isinstance(index, OceanBaseMemoryFTSIndex)), None)
+        vector = next((index for index in indexes if isinstance(index, OceanBaseMemoryVectorIndex)), None)
+        if fts is None or vector is None:
+            raise CapabilityNotSupportedError("hybrid")
+        self._fts = fts
+        self._vector = vector
+        self._query_vector = VECTOR(vector.profile.dimension)
+        self._hybrid_sql = text(_hybrid_candidate_sql("", "")).bindparams(
+            bindparam("memory_artifact_ids", expanding=True),
+            bindparam("query_vector", type_=self._query_vector),
+        )
+        self._tagged_hybrid_sql = text(_hybrid_candidate_sql(memory_tag_sql("h"), memory_tag_sql("m"))).bindparams(
+            bindparam("memory_artifact_ids", expanding=True),
+            bindparam("query_vector", type_=self._query_vector),
+            bindparam("tag_keys", expanding=True),
+            bindparam("tag_hashes", expanding=True),
+        )
+
+    async def search(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        request: MemorySearchRequest,
+        /,
+    ) -> MemorySearchChannels:
+        if request.mode != "hybrid":
+            return await super().search(connection, scope_id, request)
+        profile = self._vector.profile
+        if request.embedding_profile != profile or request.query_vector is None:
+            raise CapabilityNotSupportedError("embedding-profile")
+        if not await self._vector.vector_complete(connection, scope_id, request.memories, profile):
+            raise CapabilityNotSupportedError("vector")
+        parameters: dict[str, Any] = {
+            "scope_id": scope_id,
+            "memory_artifact_ids": tuple(memory.artifact_id for memory in request.memories),
+            "query": request.analyzed_query,
+            "query_vector": validate_embedding(request.query_vector, dimension=profile.dimension),
+            "candidate_limit": request.candidate_limit,
+        }
+        if request.tag_filter is None:
+            statement = self._hybrid_sql
+        else:
+            statement = self._tagged_hybrid_sql
+            parameters.update(memory_tag_parameters(request.tag_filter))
+        rows = (await connection.execute(statement, parameters)).mappings().all()
+        fts_rows = sorted(
+            (row for row in rows if row["channel"] == "fts"),
+            key=lambda row: (
+                -float(row["score"]),
+                str(row["memory_artifact_id"]),
+                str(row["entry_id"]),
+                str(row["entry_version_id"]),
+            ),
+        )
+        vector_rows = sorted(
+            (row for row in rows if row["channel"] == "vector"),
+            key=lambda row: (
+                float(row["distance"]),
+                str(row["memory_artifact_id"]),
+                str(row["entry_id"]),
+                str(row["entry_version_id"]),
+            ),
+        )
+        return MemorySearchChannels(
+            fts=memory_channel_hits(fts_rows, request.memories),
+            vector=memory_channel_hits(vector_rows, request.memories),
+        )
