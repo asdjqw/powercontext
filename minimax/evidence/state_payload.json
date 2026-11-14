@@ -1,0 +1,21 @@
+{
+    "task_id":  "minimax-sdd-001",
+    "completed":  [
+                      "indexed engineering sources",
+                      "generated patch with MiniMax"
+                  ],
+    "sources":  [
+                    "project/specs/pricing_policy.md",
+                    "project/src/subledger/pricing.py",
+                    "project/tests/test_target_minimum_discount.py"
+                ],
+    "pending":  [
+                    "run after-state tests",
+                    "record validation"
+                ],
+    "phase":  "implementation_generated",
+    "validation":  {
+                       "regression_tests":  "pending",
+                       "target_tests":  "pending"
+                   }
+}

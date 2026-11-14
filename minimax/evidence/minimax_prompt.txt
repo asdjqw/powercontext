@@ -1,0 +1,100 @@
+TASK:
+Add a minimum order threshold of 10000 cents, cap the discount at 50 percent, and preserve existing rounding and validation behavior
+
+ENGINEERING CONTEXT:
+You are changing a small Python pricing project. Use only the sources below.
+TASK: Add a minimum order threshold of 10000 cents, cap the discount at 50 percent, and preserve existing rounding and validation behavior
+
+## SPEC SOURCES
+
+### project/specs/change_request.md:1 (change_request)
+# Change Request: minimum order threshold and discount cap
+
+Implement the pricing policy update in `subledger.pricing.apply_discount`:
+
+1. Orders with a subtotal below 10,000 cents receive no discount.
+2. Orders at or above 10,000 cents keep the existing percentage behavior.
+3. The discount percentage is capped at 50.
+4. Existing rounding, zero-value, and validation behavior must not regress.
+
+Acceptance evidence:
+
+- `test_target_minimum_discount.py` must pass after the change.
+
+### project/specs/pricing_policy.md:3 (pricing_policy)
+# SubLedger Pricing Policy
+
+## PRICE-001 — Minimum discountable order
+
+An order with a subtotal below **10,000 cents** must not receive any discount.
+The amount due is the subtotal unchanged.
+
+## PRICE-002 — Maximum discount rate
+
+A percentage discount is capped at **50%**. Any input above 50 is treated as 50
+for the purpose of calculating the amount due.
+
+### project/specs/policy_amendment.md:3 (policy_amendment)
+# Policy Amendment
+
+## PRICE-AMS-001 — Effective minimum
+
+The minimum discountable order is **10,000 cents** for the current release.
+This amendment is imported into the engineering index and may be updated by the
+policy owner without changing application code.
+
+## CODE SOURCES
+
+### project/src/subledger/pricing.py:1 (apply_discount)
+"""Order pricing rules for the sample SubLedger business project."""
+
+from decimal import Decimal, ROUND_HALF_UP
+
+
+def apply_discount(subtotal_cents: int, percent: int) -> int:
+    """Return the amount due after applying a percentage discount.
+
+    The function deliberately keeps the business project small: it is the
+    before-state for the SDD validation scenario.
+    """
+    if subtotal_cents < 0:
+
+## TEST SOURCES
+
+### project/tests/test_target_minimum_discount.py:15 (test_small_order_below_minimum_gets_no_discount, test_minimum_order_gets_discount, test_discount_percent_is_capped_at_fifty)
+from subledger.pricing import apply_discount  # noqa: E402
+
+
+def test_small_order_below_minimum_gets_no_discount():
+    assert apply_discount(9_999, 10) == 9_999
+    assert apply_discount(5_000, 10) == 5_000
+
+
+def test_minimum_order_gets_discount():
+    assert apply_discount(10_000, 10) == 9_000
+
+### project/tests/test_regression_pricing.py:1 (test_regular_discount_is_unchanged, test_rounding_is_half_up_to_the_cent, test_zero_percent_and_zero_subtotal, test_negative_inputs_raise_value_error)
+"""Compatibility tests that must keep passing before and after the change."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from subledger.pricing import apply_discount  # noqa: E402
+
+
+def test_regular_discount_is_unchanged():
+    assert apply_discount(20_000, 10) == 18_000
+
+## DOC SOURCES
+
+### project/docs/architecture.md:8 (architecture)
+- `subledger.pricing.apply_discount(subtotal_cents, percent)` — computes the
+  amount due after a percentage discount.
+- `test_regression_pricing.py` protects the existing pricing contract.
+- `test_target_minimum_discount.py` describes the requested policy change.
+
+The SDD context module indexes these files by path, kind, and symbol so a task
+can retrieve the applicable policy, implementation, and tests before asking a
+coding model for a patch.

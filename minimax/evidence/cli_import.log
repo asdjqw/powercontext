@@ -1,0 +1,13 @@
+$ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe -m sdd_context.cli import
+exit_code=0
+--- stdout ---
+{
+  "indexed": 9,
+  "code": 1,
+  "doc": 3,
+  "spec": 3,
+  "test": 2
+}
+
+--- stderr ---
+

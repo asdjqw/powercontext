@@ -1,0 +1,132 @@
+{
+  "task": "Add a minimum order threshold of 10000 cents, cap the discount at 50 percent, and preserve existing rounding and validation behavior",
+  "query_terms": [
+    "minimum",
+    "min",
+    "threshold",
+    "small",
+    "below",
+    "10000",
+    "10,000",
+    "order",
+    "pricing",
+    "price",
+    "subtotal",
+    "checkout",
+    "cents",
+    "cap",
+    "discount",
+    "percent",
+    "percentage",
+    "rate",
+    "at",
+    "50",
+    "preserve",
+    "existing",
+    "regression",
+    "compatibility",
+    "rounding",
+    "round",
+    "cent",
+    "half",
+    "validation",
+    "negative",
+    "valueerror",
+    "zero",
+    "behavior"
+  ],
+  "specs": [
+    {
+      "source_id": 1,
+      "path": "project/specs/change_request.md",
+      "kind": "spec",
+      "symbol": "change_request",
+      "title": "Change Request: minimum order threshold and discount cap",
+      "line": 1,
+      "reason": "task match in spec",
+      "sha256": "3f8392a82b1b5ad8902730eba32bbd06be40064c8306eb93b24151e4953ca9e6",
+      "exists": true,
+      "excerpt": "# Change Request: minimum order threshold and discount cap\n\nImplement the pricing policy update in `subledger.pricing.apply_discount`:\n\n1. Orders with a subtotal below 10,000 cents receive no discount.\n2. Orders at or above 10,000 cents keep the existing percentage behavior.\n3. The discount percentage is capped at 50.\n4. Existing rounding, zero-value, and validation behavior must not regress.\n\nAcceptance evidence:\n\n- `test_target_minimum_discount.py` must pass after the change."
+    },
+    {
+      "source_id": 3,
+      "path": "project/specs/pricing_policy.md",
+      "kind": "spec",
+      "symbol": "pricing_policy",
+      "title": "SubLedger Pricing Policy",
+      "line": 3,
+      "reason": "task match in spec",
+      "sha256": "f4d469ee9bfb291ad69716245307bba714ff9d1c752bacddffc65d35ad12783e",
+      "exists": true,
+      "excerpt": "# SubLedger Pricing Policy\n\n## PRICE-001 — Minimum discountable order\n\nAn order with a subtotal below **10,000 cents** must not receive any discount.\nThe amount due is the subtotal unchanged.\n\n## PRICE-002 — Maximum discount rate\n\nA percentage discount is capped at **50%**. Any input above 50 is treated as 50\nfor the purpose of calculating the amount due."
+    },
+    {
+      "source_id": 2,
+      "path": "project/specs/policy_amendment.md",
+      "kind": "spec",
+      "symbol": "policy_amendment",
+      "title": "Policy Amendment",
+      "line": 3,
+      "reason": "task match in spec",
+      "sha256": "8fe967b0fcc0543eee2f180d9088c4adfe2663a5c28577df13ce166c1a8e7eed",
+      "exists": true,
+      "excerpt": "# Policy Amendment\n\n## PRICE-AMS-001 — Effective minimum\n\nThe minimum discountable order is **10,000 cents** for the current release.\nThis amendment is imported into the engineering index and may be updated by the\npolicy owner without changing application code."
+    }
+  ],
+  "code": [
+    {
+      "source_id": 5,
+      "path": "project/src/subledger/pricing.py",
+      "kind": "code",
+      "symbol": "apply_discount",
+      "title": "pricing",
+      "line": 1,
+      "reason": "task match in code",
+      "sha256": "83f6161ac0a3426e742b14b21bd26cfc4c37c3a75d084385b98995a68dc22457",
+      "exists": true,
+      "excerpt": "\"\"\"Order pricing rules for the sample SubLedger business project.\"\"\"\n\nfrom decimal import Decimal, ROUND_HALF_UP\n\n\ndef apply_discount(subtotal_cents: int, percent: int) -> int:\n    \"\"\"Return the amount due after applying a percentage discount.\n\n    The function deliberately keeps the business project small: it is the\n    before-state for the SDD validation scenario.\n    \"\"\"\n    if subtotal_cents < 0:"
+    }
+  ],
+  "tests": [
+    {
+      "source_id": 7,
+      "path": "project/tests/test_target_minimum_discount.py",
+      "kind": "test",
+      "symbol": "test_small_order_below_minimum_gets_no_discount, test_minimum_order_gets_discount, test_discount_percent_is_capped_at_fifty",
+      "title": "test_target_minimum_discount",
+      "line": 15,
+      "reason": "task match in test",
+      "sha256": "104bed16756a6f96a622475af5fd570572e0ff42a656efde4bc78bd7315acebf",
+      "exists": true,
+      "excerpt": "from subledger.pricing import apply_discount  # noqa: E402\n\n\ndef test_small_order_below_minimum_gets_no_discount():\n    assert apply_discount(9_999, 10) == 9_999\n    assert apply_discount(5_000, 10) == 5_000\n\n\ndef test_minimum_order_gets_discount():\n    assert apply_discount(10_000, 10) == 9_000"
+    },
+    {
+      "source_id": 6,
+      "path": "project/tests/test_regression_pricing.py",
+      "kind": "test",
+      "symbol": "test_regular_discount_is_unchanged, test_rounding_is_half_up_to_the_cent, test_zero_percent_and_zero_subtotal, test_negative_inputs_raise_value_error",
+      "title": "test_regression_pricing",
+      "line": 1,
+      "reason": "task match in test",
+      "sha256": "eff3ae487296becee8f4849f71f89064ce1d59543415c356506a06f4477ce1f8",
+      "exists": true,
+      "excerpt": "\"\"\"Compatibility tests that must keep passing before and after the change.\"\"\"\n\nimport sys\nfrom pathlib import Path\n\nsys.path.insert(0, str(Path(__file__).resolve().parents[1] / \"src\"))\n\nfrom subledger.pricing import apply_discount  # noqa: E402\n\n\ndef test_regular_discount_is_unchanged():\n    assert apply_discount(20_000, 10) == 18_000"
+    }
+  ],
+  "docs": [
+    {
+      "source_id": 8,
+      "path": "README.md",
+      "kind": "doc",
+      "symbol": "README",
+      "title": "MiniMax × OceanBase：规有所依 — SDD 上下文模块",
+      "line": 1,
+      "reason": "task match in doc",
+      "sha256": "b835d4faf9b330bad9bb483d7b0575d65dedc59b5d6692ea6906b952f07fb4c7",
+      "exists": true,
+      "excerpt": "# MiniMax × OceanBase：规有所依 — SDD 上下文模块\n\n本目录是一个可运行的 **规格驱动开发（SDD）上下文模块** 示例。它把规格、实现代码和测试导入 **seekdb**，按开发任务检索出真实来源，交给 **MiniMax** 生成代码修改，用 **PowerContext** 保存/恢复任务状态，并通过同一组测试验证修改前后行为。\n\n题目要求的六项必做内容全部有可复现证据：\n\n| 必做项 | 实现 |\n| --- | --- |\n| 能够运行 | `scripts/start_seekdb.py` + `scripts/run_acceptance.py`，从空状态可完整重跑 |\n| MiniMax 实际参与 | `evidence/minimax_requests.jsonl`、`evidence/minimax_last_response.json`、`evidence/minimax_patch.diff` |\n| 上下文正确 | `sdd_context` 从 seekdb 检索规格/代码/测试；`evidence/context_initial.json` 和规格更新后的 `cont"
+    }
+  ],
+  "source_count": 7,
+  "state": null
+}

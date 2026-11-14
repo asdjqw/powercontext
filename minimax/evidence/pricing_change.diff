@@ -1,0 +1,31 @@
+--- a/project/src/subledger/pricing.py
++++ b/project/src/subledger/pricing.py
+@@ -6,17 +6,23 @@
+ def apply_discount(subtotal_cents: int, percent: int) -> int:
+     """Return the amount due after applying a percentage discount.
+ 
+-    The function deliberately keeps the business project small: it is the
+-    before-state for the SDD validation scenario.
++    Orders below 10,000 cents receive no discount, and the discount
++    percentage is capped at 50 percent.
+     """
+     if subtotal_cents < 0:
+         raise ValueError("subtotal_cents must be non-negative")
+     if percent < 0:
+         raise ValueError("percent must be non-negative")
+ 
++    if subtotal_cents < 10_000:
++        return subtotal_cents
++
++    effective_percent = min(percent, 50)
+     discount = int(
+-        (Decimal(subtotal_cents) * Decimal(percent) / Decimal(100)).quantize(
+-            Decimal("1"), rounding=ROUND_HALF_UP
+-        )
++        (
++            Decimal(subtotal_cents)
++            * Decimal(effective_percent)
++            / Decimal(100)
++        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+     )
+     return subtotal_cents - discount

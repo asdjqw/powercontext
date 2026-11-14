@@ -1,0 +1,10 @@
+$ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe -m sdd_context.cli db-init --reset
+exit_code=0
+--- stdout ---
+{
+  "database": "sdd_context",
+  "documents": {}
+}
+
+--- stderr ---
+

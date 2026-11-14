@@ -1,0 +1,8 @@
+$ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe -m pytest -q E:\Learning Resourse\oceanbase\powercontext-ecosystem\minimax\project\tests\test_target_minimum_discount.py
+exit_code=0
+--- stdout ---
+...                                                                      [100%]
+3 passed in 0.01s
+
+--- stderr ---
+
