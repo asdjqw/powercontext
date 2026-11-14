@@ -1,0 +1,7 @@
+$ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe E:\Learning Resourse\oceanbase\powercontext-ecosystem\minimax\scripts\start_seekdb.py
+exit_code=0
+--- stdout ---
+seekdb already reachable: mysql://root@127.0.0.1:2881/sdd_context
+
+--- stderr ---
+

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-14T09:28:35.695946+00:00",
+  "generated_at": "2026-11-14T09:30:18.908313+00:00",
   "task": "Add a minimum order threshold of 10000 cents, cap the discount at 50 percent, and preserve existing rounding and validation behavior",
   "checks": [
     {
@@ -167,7 +167,7 @@
     {
       "check": "PowerContext state saved",
       "passed": true,
-      "detail": "idation\\\": {\\\"after_target\\\": \\\"pass\\\", \\\"before_target\\\": \\\"fail:AssertionError\\\", \\\"regression_tests\\\": \\\"pass\\\", \\\"target_tests\\\": \\\"pass\\\"}}\",\n  \"citation\": {\n    \"memory_ref\": {\n      \"family\": \"memory\",\n      \"artifact_id\": \"memory\",\n      \"revision\": 1\n    },\n    \"entry_id\": \"mem_ent_3b31a8cc4fca441eb075839f5896327b\",\n    \"entry_version_id\": \"mem_ver_b54cd46277f3401fa201d122c0a71f34\"\n  }\n}\n"
+      "detail": "idation\\\": {\\\"after_target\\\": \\\"pass\\\", \\\"before_target\\\": \\\"fail:AssertionError\\\", \\\"regression_tests\\\": \\\"pass\\\", \\\"target_tests\\\": \\\"pass\\\"}}\",\n  \"citation\": {\n    \"memory_ref\": {\n      \"family\": \"memory\",\n      \"artifact_id\": \"memory\",\n      \"revision\": 1\n    },\n    \"entry_id\": \"mem_ent_b9af0ae075904bbe8cf4c9eb62634b1e\",\n    \"entry_version_id\": \"mem_ver_294af2cdbbc8439b90757a67c38d3810\"\n  }\n}\n"
     },
     {
       "check": "PowerContext state restored after restart",
