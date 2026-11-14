@@ -64,9 +64,11 @@ export SEEKDB_DSN='mysql://user:password@host:2881/sdd_context'
 python scripts/run_acceptance.py
 ```
 
+如果本地 2881 端口没有 seekdb，脚本会先调用 `scripts/start_seekdb.py` 尝试启动；也可以提前按第 2 节手动启动或设置 `SEEKDB_DSN`。
+
 它会：
 
-1. 创建/重置 `sdd_context` 数据库，导入 7 份工程资料；
+1. 创建/重置 `sdd_context` 数据库，导入工程资料；
 2. 对任务检索上下文，校验规格、代码、测试来源真实存在；
 3. 恢复修改前代码，运行目标测试（预期失败，且失败原因是 `AssertionError`，不是环境错误）和回归测试（预期通过）；
 4. 应用 MiniMax 生成的实现，运行目标测试和回归测试（预期全部通过）；
