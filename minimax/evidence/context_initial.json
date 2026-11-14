@@ -122,7 +122,7 @@
       "title": "MiniMax × OceanBase：规有所依 — SDD 上下文模块",
       "line": 1,
       "reason": "task match in doc",
-      "sha256": "b835d4faf9b330bad9bb483d7b0575d65dedc59b5d6692ea6906b952f07fb4c7",
+      "sha256": "5e5e1cdd8d229bb9ac5b634315488f7822ed6716db0eaba4d660e8ed1948ea5f",
       "exists": true,
       "excerpt": "# MiniMax × OceanBase：规有所依 — SDD 上下文模块\n\n本目录是一个可运行的 **规格驱动开发（SDD）上下文模块** 示例。它把规格、实现代码和测试导入 **seekdb**，按开发任务检索出真实来源，交给 **MiniMax** 生成代码修改，用 **PowerContext** 保存/恢复任务状态，并通过同一组测试验证修改前后行为。\n\n题目要求的六项必做内容全部有可复现证据：\n\n| 必做项 | 实现 |\n| --- | --- |\n| 能够运行 | `scripts/start_seekdb.py` + `scripts/run_acceptance.py`，从空状态可完整重跑 |\n| MiniMax 实际参与 | `evidence/minimax_requests.jsonl`、`evidence/minimax_last_response.json`、`evidence/minimax_patch.diff` |\n| 上下文正确 | `sdd_context` 从 seekdb 检索规格/代码/测试；`evidence/context_initial.json` 和规格更新后的 `cont"
     }

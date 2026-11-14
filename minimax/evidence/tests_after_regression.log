@@ -1,3 +1,4 @@
+code_version=minimax-sdd-v1
 $ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe -m pytest -q E:\Learning Resourse\oceanbase\powercontext-ecosystem\minimax\project\tests\test_regression_pricing.py
 exit_code=0
 --- stdout ---

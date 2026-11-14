@@ -102,9 +102,9 @@
       "kind": "doc",
       "symbol": "README",
       "title": "MiniMax × OceanBase：规有所依 — SDD 上下文模块",
-      "line": 102,
+      "line": 104,
       "reason": "task match in doc",
-      "sha256": "b835d4faf9b330bad9bb483d7b0575d65dedc59b5d6692ea6906b952f07fb4c7",
+      "sha256": "5e5e1cdd8d229bb9ac5b634315488f7822ed6716db0eaba4d660e8ed1948ea5f",
       "exists": true,
       "excerpt": "# 按任务检索开发上下文（输出 JSON，包含 specs/code/tests/docs 与真实来源）\npython -m sdd_context.cli context \\\n  --task \"Add a minimum order threshold of 10000 cents and cap the discount at 50 percent\"\n\n# 检索并渲染为可直接交给模型的文本\npython -m sdd_context.cli context --task \"...\" --prompt\n\n# 保存任务状态到 PowerContext\npython -m sdd_context.cli state-save \\\n  --payload-file evidence/state_payload_final.json --task-id minimax-sdd-001"
     }

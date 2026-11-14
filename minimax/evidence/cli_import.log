@@ -1,3 +1,4 @@
+code_version=minimax-sdd-v1
 $ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe -m sdd_context.cli import
 exit_code=0
 --- stdout ---

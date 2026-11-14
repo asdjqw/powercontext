@@ -1,3 +1,4 @@
+code_version=minimax-sdd-v1
 $ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe E:\Learning Resourse\oceanbase\powercontext-ecosystem\minimax\scripts\start_seekdb.py
 exit_code=0
 --- stdout ---

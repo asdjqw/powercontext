@@ -1,5 +1,6 @@
 {
-  "generated_at": "2026-11-14T09:30:18.908313+00:00",
+  "generated_at": "2026-11-14T11:50:37.200477+00:00",
+  "code_version": "minimax-sdd-v1",
   "task": "Add a minimum order threshold of 10000 cents, cap the discount at 50 percent, and preserve existing rounding and validation behavior",
   "checks": [
     {
@@ -147,7 +148,7 @@
     {
       "check": "target failure is AssertionError",
       "passed": true,
-      "detail": "s_capped_at_fifty():\n>       assert apply_discount(20_000, 80) == 10_000\nE       assert 4000 == 10000\nE        +  where 4000 = apply_discount(20000, 80)\n\ntests\\test_target_minimum_discount.py:25: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_target_minimum_discount.py::test_small_order_below_minimum_gets_no_discount\nFAILED tests/test_target_minimum_discount.py::test_discount_percent_is_capped_at_fifty\n2 failed, 1 passed in 0.05s\n"
+      "detail": "s_capped_at_fifty():\n>       assert apply_discount(20_000, 80) == 10_000\nE       assert 4000 == 10000\nE        +  where 4000 = apply_discount(20000, 80)\n\ntests\\test_target_minimum_discount.py:25: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_target_minimum_discount.py::test_small_order_below_minimum_gets_no_discount\nFAILED tests/test_target_minimum_discount.py::test_discount_percent_is_capped_at_fifty\n2 failed, 1 passed in 0.06s\n"
     },
     {
       "check": "regression passes before change",
@@ -167,7 +168,7 @@
     {
       "check": "PowerContext state saved",
       "passed": true,
-      "detail": "idation\\\": {\\\"after_target\\\": \\\"pass\\\", \\\"before_target\\\": \\\"fail:AssertionError\\\", \\\"regression_tests\\\": \\\"pass\\\", \\\"target_tests\\\": \\\"pass\\\"}}\",\n  \"citation\": {\n    \"memory_ref\": {\n      \"family\": \"memory\",\n      \"artifact_id\": \"memory\",\n      \"revision\": 1\n    },\n    \"entry_id\": \"mem_ent_b9af0ae075904bbe8cf4c9eb62634b1e\",\n    \"entry_version_id\": \"mem_ver_294af2cdbbc8439b90757a67c38d3810\"\n  }\n}\n"
+      "detail": "idation\\\": {\\\"after_target\\\": \\\"pass\\\", \\\"before_target\\\": \\\"fail:AssertionError\\\", \\\"regression_tests\\\": \\\"pass\\\", \\\"target_tests\\\": \\\"pass\\\"}}\",\n  \"citation\": {\n    \"memory_ref\": {\n      \"family\": \"memory\",\n      \"artifact_id\": \"memory\",\n      \"revision\": 1\n    },\n    \"entry_id\": \"mem_ent_12be0e5cbf3648d2a7c90c8918919f28\",\n    \"entry_version_id\": \"mem_ver_ea815314eedf424ca568412fded90e04\"\n  }\n}\n"
     },
     {
       "check": "PowerContext state restored after restart",
@@ -226,7 +227,7 @@
     {
       "check": "updated spec value returned",
       "passed": true,
-      "detail": "692ea6906b952f07fb4c7\", \"exists\": true, \"excerpt\": \"# 按任务检索开发上下文（输出 JSON，包含 specs/code/tests/docs 与真实来源）\\npython -m sdd_context.cli context \\\\\\n  --task \\\"Add a minimum order threshold of 10000 cents and cap the discount at 50 percent\\\"\\n\\n# 检索并渲染为可直接交给模型的文本\\npython -m sdd_context.cli context --task \\\"...\\\" --prompt\\n\\n# 保存任务状态到 PowerContext\\npython -m sdd_context.cli state-save \\\\\\n  --payload-file evidence/state_payload_final.json --task-id minimax-sdd-001\"}], \"source_count\": 7, \"state\": null}"
+      "detail": "eaba4d660e8ed1948ea5f\", \"exists\": true, \"excerpt\": \"# 按任务检索开发上下文（输出 JSON，包含 specs/code/tests/docs 与真实来源）\\npython -m sdd_context.cli context \\\\\\n  --task \\\"Add a minimum order threshold of 10000 cents and cap the discount at 50 percent\\\"\\n\\n# 检索并渲染为可直接交给模型的文本\\npython -m sdd_context.cli context --task \\\"...\\\" --prompt\\n\\n# 保存任务状态到 PowerContext\\npython -m sdd_context.cli state-save \\\\\\n  --payload-file evidence/state_payload_final.json --task-id minimax-sdd-001\"}], \"source_count\": 7, \"state\": null}"
     }
   ],
   "passed": true,

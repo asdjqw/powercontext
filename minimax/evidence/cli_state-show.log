@@ -1,3 +1,4 @@
+code_version=minimax-sdd-v1
 $ E:\Learning Resourse\oceanbase\minimax-venv\Scripts\python.exe -m sdd_context.cli state-show --task-id minimax-sdd-001
 exit_code=0
 --- stdout ---

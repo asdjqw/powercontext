@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "project"
 EVIDENCE = ROOT / "evidence"
+CODE_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else "dev"
 STATE_DIR = ROOT / ".state"
 TARGET = PROJECT / "tests" / "test_target_minimum_discount.py"
 REGRESSION = PROJECT / "tests" / "test_regression_pricing.py"
@@ -33,7 +34,7 @@ TASK_ID = "minimax-sdd-001"
 def run(command: list[str], cwd: Path, log_name: str) -> dict[str, object]:
     completed = subprocess.run(command, cwd=str(cwd), text=True, capture_output=True)
     log = (
-        f"$ {' '.join(command)}\nexit_code={completed.returncode}\n"
+        f"code_version={CODE_VERSION}\n$ {' '.join(command)}\nexit_code={completed.returncode}\n"
         f"--- stdout ---\n{completed.stdout}\n--- stderr ---\n{completed.stderr}\n"
     )
     (EVIDENCE / log_name).write_text(log, encoding="utf-8")
@@ -202,6 +203,7 @@ def main() -> int:
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "code_version": CODE_VERSION,
         "task": TASK,
         "checks": checks,
         "passed": all(bool(item["passed"]) for item in checks),
