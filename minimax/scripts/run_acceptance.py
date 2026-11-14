@@ -78,6 +78,20 @@ def main() -> int:
         shutil.rmtree(STATE_DIR)
     shutil.copyfile(BEFORE, PRICING)
 
+    # Make the demo a one-command run when a local seekdb binary is available.
+    # If SEEKDB_DSN points at an external server, start_seekdb.py exits 0.
+    started = run(
+        [sys.executable, str(ROOT / "scripts" / "start_seekdb.py")],
+        ROOT,
+        "start_seekdb.log",
+    )
+    if started["exit_code"] != 0:
+        print(
+            "seekdb is not reachable. Start seekdb or set SEEKDB_DSN; see README.",
+            file=sys.stderr,
+        )
+        return 2
+
     # 1. Database / index initialization and initial context.
     result = cli("db-init", "--reset")
     assert_true(checks, "seekdb init", result["exit_code"] == 0, result["stdout"][-300:])
