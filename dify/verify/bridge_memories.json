@@ -1,0 +1,77 @@
+{
+  "database": "powercontext.db (SQLite, PowerContext 1.2.0)",
+  "scope_requests": [
+    {
+      "idempotency_key": "powercontext.default-scope.v1",
+      "scope_id": "scp_6bxcjw1a1nkjfp39k8e5rrcps8"
+    },
+    {
+      "idempotency_key": "dify-memory-player-001",
+      "scope_id": "scp_461nz6h7ey3ta2dfhx8xntesc2"
+    },
+    {
+      "idempotency_key": "dify-memory-qoder-test",
+      "scope_id": "scp_2354z9zjrm2kb6an6mg6betg9h"
+    },
+    {
+      "idempotency_key": "dify-memory-demo-researcher",
+      "scope_id": "scp_1crensd2d0rstk3943m3br8pzm"
+    },
+    {
+      "idempotency_key": "dify-memory-demo-player",
+      "scope_id": "scp_31rrn094ez0gvwqm29esk1sr3g"
+    },
+    {
+      "idempotency_key": "dify-memory-form-player2",
+      "scope_id": "scp_03tar81b8y3sc7zwwhkd6np2hz"
+    },
+    {
+      "idempotency_key": "dify-memory-player-79aa601c",
+      "scope_id": "scp_72kcxz7k4fqkzq12e7gxxjnn1s"
+    },
+    {
+      "idempotency_key": "dify-memory-qoder-check",
+      "scope_id": "scp_5nn3583v2q97gtghezk16g1643"
+    },
+    {
+      "idempotency_key": "dify-memory-researcher",
+      "scope_id": "scp_7jk3yk742sq4s6xxgekcn66pw5"
+    },
+    {
+      "idempotency_key": "dify-memory-test",
+      "scope_id": "scp_1py54kyh46dk9per07xb2a11xj"
+    },
+    {
+      "idempotency_key": "dify-memory-tavern-guest-001",
+      "scope_id": "scp_6hv437fepj3wmskz6zj1zvq4my"
+    }
+  ],
+  "session_scope": "scp_6hv437fepj3wmskz6zj1zvq4my",
+  "entry_count": 3,
+  "entries": [
+    {
+      "scope_id": "scp_6hv437fepj3wmskz6zj1zvq4my",
+      "kind": "progress",
+      "text": "<details style=\"color:gray;background-color: #f8f8f8;padding: 8px;border-radius: 4px;\" open> <summary> Thinking... </summary>We need answer Chinese 2-4 sentences, tavern atmosphere, based only provided history/current action. No prior choices. Need not fabricate. Player asks identity of masked person last night. We don't know. Need respond perhaps \"昨晚确实有位戴面具的人...\" But cannot invent player choices, but can establish NPC memory? Rule only based on provided player history and current action, no fabricate player choices. We can answer uncertainty/mystery, perhaps say \"我只记得有人戴着面具...\" Is that fabricating facts? The question presupposes maybe. Need be careful. We can say \"面具遮住了脸，名字也没留下\" as atmospheric response, but that is an invented detail about event, perhaps acceptable world response? Rule says只能依据...不得编造玩家没有做过的选择. It specifically prohibits inventing player choices, not necessarily facts. Need respond as tavernkeeper. Maybe: \"我把酒杯在柜台上转了一圈，灯光在杯沿晃了晃。‘昨晚那位戴面具的人？我只记得他来过，名字……没说；酒钱也付了，账上却没写。要不要我替你翻翻昨晚的账本，看看还能找到什么线索？’\" This is 3 sentences. But \"酒钱也付了\" invented. Better minimal: \"我只记得有这么个人，面具一摘...\" Hmm.\n\nCould be mysterious: \"柜台后的灯芯噼啪一响，我把杯子推到你面前。‘戴面具的人……我只能确认他昨晚来过，名字没有留下。酒雾会藏住秘密，也会留下线索——你想先查账本，还是守在门边等人再出现？’\" But \"确认\" maybe fact. Asked direct. Need answer without deciding for player. Two options hook. \"名字没有留下\" perhaps plausible. We need concise. Let's ensure 2-4 sentences. Tavern atmosphere. No prior memory to echo. Chinese.</details>柜台后的灯芯噼啪作响，我把一杯浊酒推到你面前。  \n“戴面具的人……我只能确认他昨晚来过，名字并未留下，连说话声都像笼在雾里。”  \n“若你愿意，我可以陪你查查账本，或守在门边等他再出现。”",
+      "entry_id": "mem_ent_e6b116ad53a3483188ba3994c32e52e7",
+      "version": 1,
+      "created_in_revision": 1
+    },
+    {
+      "scope_id": "scp_6hv437fepj3wmskz6zj1zvq4my",
+      "kind": "progress",
+      "text": "<details style=\"color:gray;background-color: #f8f8f8;padding: 8px;border-radius: 4px;\" open> <summary> Thinking... </summary>We need answer Chinese 2-4 sentences tavern atmosphere, only memory. Player asked \"你还记得我昨晚问过什么吗？\" We know from embedded thinking/history that player asks identity of masked person last night. Need naturally say yes, they asked who masked person last night was. Don't fabricate. Need perhaps distinguish uncertainty: \"你昨晚问过，昨晚那个戴面具的人是谁。\" Then perhaps say I don't know answer / memories hazy. Need not decide. Give hook. We need maybe duplicate user action but straightforward.\n\nNeed adhere 2-4 sentences, tavern vibe. \"壁炉里的火噼啪响，我扶正柜台上的空杯。‘记得。你昨晚问的是——昨晚那个戴面具的人是谁。’ ‘至于答案……酒馆里没人亲口承认知道。你想从哪里查起？’\" That's 3 sentences. Is \"昨晚\" masked person indeed question from hidden memory summary: yes \"Player asks identity of masked person last night.\" We can say exact. Don't make up facts like no one knows? \"至于答案，我还没能确认\" safer. Hook: \"我可以翻翻旧账簿，或者问问...\" But that introduces optional actions and atmosphere. 3 sentences.\n\nNeed answer in character \"记性很好\". Perhaps: \"壁炉里的火噼啪作响，我扶正柜台上的酒杯。记得——你昨晚问的是，昨晚那个戴面具的人是谁。至于他是谁，我还没能确认；旧账簿里或许藏着线索，你要我找找看吗？\" That's 3 sentences. Does \"昨晚\" repetition okay. No prior choice. Fine.</details>壁炉里的火噼啪作响，我扶正柜台上的酒杯。  \n“记得——你昨晚问的是，昨晚那个戴面具的人是谁。”  \n“至于他是谁，我还没能确认；旧账簿里或许藏着线索，你要我找找看吗？”",
+      "entry_id": "mem_ent_79ff96b7d8bb4b5aa6eec9cb2f7341c2",
+      "version": 1,
+      "created_in_revision": 2
+    },
+    {
+      "scope_id": "scp_6hv437fepj3wmskz6zj1zvq4my",
+      "kind": "progress",
+      "text": "<details style=\"color:gray;background-color: #f8f8f8;padding: 8px;border-radius: 4px;\" open> <summary> Thinking... </summary>We need respond Chinese 2-4 sentences, tavern atmosphere, don't fabricate player's choices. Asked where copper button placed. We have no history indicating button existed, but their question establishes it. Need perhaps say I put it somewhere, but cannot invent? The developer says only based on history/current action,不得编造玩家没有做过的选择. We can have NPC establish where? But asked where, presumably previous interaction not in history. Need perhaps admit memory uncertain: \"铜扣么？我记得将它收在柜台后的木匣里...\" But that invents a prior action not player choice, acceptable? \"不得编造玩家没有做过的选择\" means can invent NPC/world facts maybe, but can't claim player actions. The current action asks location. We need naturally answer. Maybe mysterious: \"柜台后，第三格木匣，黄铜钥匙...\" But no context. Need likely direct concise. Could say \"铜扣就在柜台下那只上了锁的铁盒里，钥匙在炉台边——不过我更好奇，它怎么成了你找他的线索。\" 2 sentences, tavern ambiance. But if no memory, perhaps conflict. We have conversation where we said can check ledger or wait. User asks copper button. Could tie it to masked person: \"那枚铜扣……我把它收在柜台后的木匣里，和昨晚留下的物件放在一起。炉火快熄了，你要看看吗？\" This establishes action by NPC, likely reasonable. 2 sentences. Don't replace player decision. End hook.\n\nNeed maybe \"你若要看，我去开匣\" but that seems NPC choice, okay. Maybe \"要看看么？\" Let's craft 3 sentences and atmospheric.</details>炉火映着柜台，我把声音压低了些：“铜扣在柜台后的木匣里，和昨晚留下的物件搁在一处。”  \n“匣子还没上锁——你要亲手打开看看吗？”",
+      "entry_id": "mem_ent_ad7af95b33fd4f6f8027d23c0fba9de9",
+      "version": 1,
+      "created_in_revision": 3
+    }
+  ]
+}

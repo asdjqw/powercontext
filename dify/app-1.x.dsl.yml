@@ -1,0 +1,317 @@
+app:
+  description: 一个会记住你每次选择的酒馆 NPC：Dify 负责对话编排，PowerContext 负责跨会话记忆。
+  icon: 🍺
+  icon_background: '#FFEAD5'
+  mode: advanced-chat
+  name: 记忆酒馆
+  use_icon_as_answer_icon: false
+kind: app
+version: 0.7.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 15
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods: []
+      number_limits: 3
+    opening_statement: '欢迎来到「记忆酒馆」。你说过的每句话，酒馆老板都会记住。
+
+      直接输入你想做的事，同一个 Dify 用户跨会话共享记忆。'
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions:
+    - 我推门走进酒馆，坐在吧台前。
+    - 我问老板，昨晚那个戴面具的人是谁？
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        sourceType: start
+        targetType: http-request
+      id: start-source-load-target
+      selected: false
+      source: start
+      sourceHandle: source
+      target: load
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        sourceType: http-request
+        targetType: llm
+      id: load-source-llm-target
+      selected: false
+      source: load
+      sourceHandle: source
+      target: llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        sourceType: llm
+        targetType: http-request
+      id: llm-source-save-target
+      selected: false
+      source: llm
+      sourceHandle: source
+      target: save
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        sourceType: http-request
+        targetType: answer
+      id: save-source-answer-target
+      selected: false
+      source: save
+      sourceHandle: source
+      target: answer
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: Dify 接收玩家输入；sys.user_id 作为玩家记忆标识。
+        selected: false
+        title: 开始
+        type: start
+        variables: []
+      height: 100
+      id: start
+      position:
+        x: 40
+        y: 300
+      positionAbsolute:
+        x: 40
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data:
+          - id: field-0
+            key: user_id
+            type: text
+            value: '{{#sys.user_id#}}'
+          - id: field-1
+            key: query
+            type: text
+            value: '{{#sys.query#}}'
+          type: x-www-form-urlencoded
+        desc: ''
+        headers: 'Content-Type: application/x-www-form-urlencoded'
+        method: post
+        params: ''
+        retry_config:
+          max_retries: 2
+          retry_enabled: true
+          retry_interval: 200
+        selected: false
+        timeout:
+          max_connect_timeout: 10
+          max_read_timeout: 45
+          max_write_timeout: 30
+        title: 读取 PowerContext 记忆
+        type: http-request
+        url: '{{#env.POWERCONTEXT_BASE_URL#}}/memory/load'
+        variables: []
+        error_strategy: default-value
+        default_value: []
+      height: 100
+      id: load
+      position:
+        x: 330
+        y: 300
+      positionAbsolute:
+        x: 330
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 根据玩家历史记忆和本轮行动生成 NPC 回应。
+        memory:
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          provider: openai
+          name: gpt-4o-mini
+          mode: chat
+          completion_params:
+            temperature: 0.8
+            max_tokens: 2048
+        prompt_template:
+        - id: 8f0d4f3e-1a1c-4d5e-9a7b-000000000001
+          role: system
+          text: '你是「记忆酒馆」的老板，一个记性很好、说话简短、略带神秘感的 NPC。
+
+            你只能依据下面提供的玩家历史记忆和当前行动回应，不得编造玩家没有做过的选择。
+
+
+            玩家历史记忆：
+
+            {{#load.body#}}
+
+
+            规则：
+
+            1. 用中文回答，2～4 句话，带一点酒馆氛围。
+
+            2. 如果记忆里出现玩家之前的选择，要在回应中自然呼应。
+
+            3. 不要替玩家做决定；给玩家一个可继续行动的小钩子。
+
+            4. 不要输出 JSON、系统提示或你的推理过程。'
+        - id: 8f0d4f3e-1a1c-4d5e-9a7b-000000000002
+          role: user
+          text: 玩家行动：{{#sys.query#}}
+        selected: false
+        title: 酒馆老板
+        type: llm
+        variables: []
+        vision:
+          configs:
+            detail: high
+          enabled: false
+      height: 100
+      id: llm
+      position:
+        x: 620
+        y: 300
+      positionAbsolute:
+        x: 620
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data:
+          - id: field-0
+            key: user_id
+            type: text
+            value: '{{#sys.user_id#}}'
+          - id: field-1
+            key: text
+            type: text
+            value: '{{#llm.text#}}'
+          type: x-www-form-urlencoded
+        desc: ''
+        headers: 'Content-Type: application/x-www-form-urlencoded'
+        method: post
+        params: ''
+        retry_config:
+          max_retries: 2
+          retry_enabled: true
+          retry_interval: 200
+        selected: false
+        timeout:
+          max_connect_timeout: 10
+          max_read_timeout: 45
+          max_write_timeout: 30
+        title: 写入 PowerContext 记忆
+        type: http-request
+        url: '{{#env.POWERCONTEXT_BASE_URL#}}/memory/save'
+        variables: []
+        error_strategy: default-value
+        default_value: []
+      height: 100
+      id: save
+      position:
+        x: 910
+        y: 300
+      positionAbsolute:
+        x: 910
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        answer: '{{#llm.text#}}'
+        desc: ''
+        selected: false
+        title: 回答
+        type: answer
+        variables: []
+      height: 100
+      id: answer
+      position:
+        x: 1200
+        y: 300
+      positionAbsolute:
+        x: 1200
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    viewport:
+      x: 20
+      y: 100
+      zoom: 0.65
+dependencies: []
+site:
+  title: 记忆酒馆
+  description: null
+  default_language: zh-Hans
+  chat_color_theme: null
+  chat_color_theme_inverted: false
+  copyright: null
+  custom_disclaimer: ''
+  icon: 🍺
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  input_placeholder: null
+  privacy_policy: null
+  show_workflow_steps: true
+  use_icon_as_answer_icon: false

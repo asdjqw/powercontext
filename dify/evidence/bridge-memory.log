@@ -1,0 +1,10 @@
+2026-11-16T07:14:44.922505+00:00
+user=player-79aa601c
+GET /health
+{"ok": true, "error": "", "base_url": "http://127.0.0.1:58473"}
+POST /memory/load (form-urlencoded, first, empty)
+（暂无历史记忆）
+POST /memory/save (form-urlencoded)
+{"scope_id": "scp_72kcxz7k4fqkzq12e7gxxjnn1s", "saved": true, "citation": ""}
+POST /memory/load (new request, recall)
+- 你推门时带进一阵冷风。老板擦着杯子说：戴面具的人昨晚坐在角落，走前留下一枚铜扣。

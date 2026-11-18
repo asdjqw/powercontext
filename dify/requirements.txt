@@ -1,0 +1,3 @@
+# Dify 赛题根目录依赖入口。
+# 真正的依赖在桥接服务里；这里只做转发，方便自动构建/评审直接 pip install -r requirements.txt。
+-r bridge/requirements.txt

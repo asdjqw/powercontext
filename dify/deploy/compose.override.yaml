@@ -1,0 +1,32 @@
+# ============================================================
+# 可选 override：放到 Dify 源码的 docker/ 目录，与官方 docker-compose.yaml 同级。
+#   docker compose -f docker-compose.yaml -f compose.override.yaml up -d
+#
+# 作用一（默认需要）：让容器能通过 host.docker.internal 访问宿主机上的
+#   PowerContext 桥接服务（Linux 上必须显式映射 host-gateway）。
+# 作用二（可选）：把桥接服务作为 compose 服务启动，走容器网络，
+#   此时 DSL 环境变量 POWERCONTEXT_BASE_URL 改成 http://powercontext:8099
+# ============================================================
+services:
+  api:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  worker:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 可选：容器化桥接服务。启用前把 POWERCONTEXT_BRIDGE_DIR 指向本仓库的
+  # dify/bridge 目录（绝对路径最稳妥），并取消下面的注释。
+  # powercontext:
+  #   build: ${POWERCONTEXT_BRIDGE_DIR:-../bridge}
+  #   restart: unless-stopped
+  #   environment:
+  #     BRIDGE_PORT: "8099"
+  #     BRIDGE_DATA: "/data"
+  #   volumes:
+  #     - powercontext_data:/data
+  #   ports:
+  #     - "8099:8099"
+
+# volumes:
+#   powercontext_data:
