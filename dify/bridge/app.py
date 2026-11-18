@@ -1,24 +1,18 @@
 """Small HTTP bridge between Dify and a real PowerContext server.
 
-The Dify 1.x Chatflow (see ``dify/app.dsl.yml``) calls two JSON endpoints:
+Dify's HTTP Request node calls:
+  POST /memory/load  (form: user_id, query) -> plain-text memories
+  POST /memory/save  (form: user_id, text)  -> JSON
 
-  POST /search   {"scope": "dify-<user>", "query": "...", "limit": 5}
-                 -> {"scope": ..., "hits": [{"text": "..."}]}
-  POST /remember {"scope": "dify-<user>", "text": "..."}
-                 -> {"ok": true, "scope": ..., "citation": "..."}
-
-The older form/text endpoints (``/memory/load``、``/memory/save``) are kept for
-backward compatibility with the 0.15.3 DSL.
-
-The bridge starts PowerContext in-process (SQLite backend) and keeps one Scope
-per Dify user, so the same ``sys.user_id`` keeps its memory across sessions.
+The bridge starts PowerContext in-process (SQLite) and keeps one Scope per
+Dify user, so the same user's choices are remembered across Dify sessions.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import os
+import re
 import socket
 from urllib.parse import parse_qs
 import threading
@@ -44,9 +38,15 @@ from powercontext.server.settings import (
 import uvicorn
 
 ROOT = Path(__file__).resolve().parent
-DATA = Path(os.environ.get("BRIDGE_DATA", ROOT / ".data"))
+DATA = ROOT / ".data"
+_THINKING = re.compile(r"<details.*?</details>", re.S | re.I)
+
+
+def clean_memory(text: str) -> str:
+    """Drop the model's thinking block so stored memory is the answer body only."""
+    return _THINKING.sub("", text or "").strip()
 DATA.mkdir(parents=True, exist_ok=True)
-PORT = int(os.environ.get("BRIDGE_PORT", "8099"))
+PORT = int(__import__("os").environ.get("BRIDGE_PORT", "8099"))
 
 
 class Runtime:
@@ -58,6 +58,11 @@ class Runtime:
         self._server = None
         self._listener: socket.socket | None = None
         self._scopes: dict[str, str] = {}
+        self._recent_path = DATA / "recent.json"
+        try:
+            self._recent: dict[str, list[str]] = json.loads(self._recent_path.read_text("utf-8"))
+        except (OSError, ValueError):
+            self._recent = {}
         self.ready = threading.Event()
         self.error = ""
         self.thread.start()
@@ -107,42 +112,57 @@ class Runtime:
             raise RuntimeError(self.error)
         return asyncio.run_coroutine_threadsafe(coro, self.loop).result(60)
 
-    async def _scope(self, scope_key: str) -> str:
-        key = (scope_key or "demo-player").strip()[:120]
-        if key in self._scopes:
-            return self._scopes[key]
+    async def _scope(self, user_id: str) -> str:
+        if user_id in self._scopes:
+            return self._scopes[user_id]
         assert self.client is not None
         scope = await self.client.create_scope(
             CreateScopeRequest(
-                title=f"Dify memory {key}"[:120],
+                title=f"Dify player {user_id}",
                 summary="Interactive story memory for the Dify Memory Tavern app",
-                idempotency_key=f"dify-memory-{key}",
+                idempotency_key=f"dify-memory-{user_id}",
             )
         )
-        self._scopes[key] = scope.scope_id
+        self._scopes[user_id] = scope.scope_id
         return scope.scope_id
 
-    async def _search(self, scope_key: str, query: str, limit: int) -> dict[str, Any]:
-        assert self.client is not None
-        scope_id = await self._scope(scope_key)
-        result = await self.client.search_memory(
-            SearchMemoryRequest(
-                scope_id=scope_id,
-                query=query or "玩家行动",
-                mode="fts",
-                limit=max(1, min(int(limit or 5), 20)),
-            )
-        )
-        hits = []
-        for hit in result.hits:
-            text = getattr(hit, "text", "") or ""
-            if text:
-                hits.append({"text": text, "citation": str(getattr(hit, "citation", "") or "")})
-        return {"scope": scope_key, "scope_id": scope_id, "query": query, "hits": hits}
+    def _remember(self, user_id: str, text: str) -> None:
+        text = clean_memory(text)
+        if not text:
+            return
+        items = self._recent.setdefault(user_id, [])
+        items.append(text[:2000])
+        del items[:-20]
+        try:
+            self._recent_path.write_text(json.dumps(self._recent, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
 
-    async def _remember(self, scope_key: str, text: str) -> dict[str, Any]:
+    async def _load(self, user_id: str, query: str) -> str:
         assert self.client is not None
-        scope_id = await self._scope(scope_key)
+        scope_id = await self._scope(user_id)
+        result = await self.client.search_memory(
+            SearchMemoryRequest(scope_id=scope_id, query=query, mode="fts", limit=8)
+        )
+        seen: set[str] = set()
+        lines: list[str] = []
+        # Deterministic recency first: the next session must always see the last
+        # few turns, even when the question shares no FTS token with them.
+        for text in reversed(self._recent.get(user_id, [])[-5:]):
+            if text not in seen:
+                seen.add(text)
+                lines.append(f"- {text}")
+        for hit in result.hits:
+            text = getattr(hit, "text", "")
+            if text and text not in seen:
+                seen.add(text)
+                lines.append(f"- {text}")
+        return "\n".join(lines[:8]) if lines else "（暂无历史记忆）"
+
+    async def _save(self, user_id: str, text: str) -> dict[str, Any]:
+        assert self.client is not None
+        scope_id = await self._scope(user_id)
+        text = clean_memory(text)
         saved = await self.client.remember_memory(
             RememberMemoryRequest(
                 scope_id=scope_id,
@@ -151,7 +171,8 @@ class Runtime:
                 reason="Dify Memory Tavern player/NPC turn",
             )
         )
-        return {"ok": True, "scope": scope_key, "scope_id": scope_id, "citation": str(getattr(saved, "citation", "") or "")}
+        self._remember(user_id, text)
+        return {"scope_id": scope_id, "saved": True, "citation": str(getattr(saved, "citation", ""))}
 
 
 RUNTIME = Runtime()
@@ -159,7 +180,7 @@ RUNTIME = Runtime()
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
-        print(f"[bridge] {fmt % args}", flush=True)
+        print(f"[bridge] {fmt % args}")
 
     def _reply(self, status: int, body: Any) -> None:
         payload = body.encode("utf-8") if isinstance(body, str) else json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -176,54 +197,29 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._reply(404, {"error": "not found"})
 
-    def _parse(self, raw: str, content_type: str) -> tuple[dict[str, Any], dict[str, str], str]:
-        payload: dict[str, Any] = {}
-        form: dict[str, str] = {}
-        if "application/json" in content_type:
-            try:
-                parsed = json.loads(raw) if raw.strip() else {}
-                if isinstance(parsed, dict):
-                    payload = parsed
-            except json.JSONDecodeError:
-                payload = {}
-        elif "application/x-www-form-urlencoded" in content_type:
-            form = {key: values[0] for key, values in parse_qs(raw, keep_blank_values=True).items()}
-        return payload, form, raw
-
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length).decode("utf-8", "replace")
         content_type = (self.headers.get("Content-Type") or "").lower()
-        payload, form, raw_text = self._parse(raw, content_type)
-        scope_key = str(
-            payload.get("scope")
-            or payload.get("user_id")
-            or self.headers.get("X-User-Id")
-            or form.get("user_id")
-            or "demo-player"
-        ).strip() or "demo-player"
+        form = {}
+        if "application/x-www-form-urlencoded" in content_type:
+            form = {key: values[0] for key, values in parse_qs(raw, keep_blank_values=True).items()}
+        user_id = (self.headers.get("X-User-Id") or form.get("user_id") or "demo-player").strip() or "demo-player"
         try:
-            if self.path in ("/search", "/memory/load"):
-                query = str(payload.get("query") or form.get("query") or (raw_text if not payload and not form else ""))
-                limit = int(payload.get("limit") or 5)
-                result = RUNTIME.call(RUNTIME._search(scope_key, query.strip(), limit))
-                if self.path == "/search":
-                    self._reply(200, result)
-                else:
-                    lines = [f"- {hit['text']}" for hit in result["hits"]]
-                    self._reply(200, "\n".join(lines) if lines else "（暂无历史记忆）")
-            elif self.path in ("/remember", "/memory/save"):
-                text = str(payload.get("text") or form.get("text") or (raw_text if not payload and not form else "")).strip()
-                if not text:
-                    self._reply(400, {"ok": False, "error": "text is empty"})
-                    return
-                self._reply(200, RUNTIME.call(RUNTIME._remember(scope_key, text)))
+            if self.path == "/memory/load":
+                query = form.get("query", raw) if form else raw
+                context = RUNTIME.call(RUNTIME._load(user_id, query.strip() or "玩家行动"))
+                self._reply(200, context)
+            elif self.path == "/memory/save":
+                text = form.get("text", raw) if form else raw
+                result = RUNTIME.call(RUNTIME._save(user_id, text.strip()))
+                self._reply(200, result)
             else:
                 self._reply(404, {"error": "not found"})
         except Exception as exc:
-            self._reply(503, {"ok": False, "error": str(exc)[:500]})
+            self._reply(503, {"error": str(exc)[:500]})
 
 
 if __name__ == "__main__":
-    print(f"Dify/PowerContext bridge listening on http://0.0.0.0:{PORT} (PowerContext {RUNTIME.base_url})", flush=True)
+    print(f"Dify/PowerContext bridge listening on http://0.0.0.0:{PORT} (PowerContext {RUNTIME.base_url})")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
